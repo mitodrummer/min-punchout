@@ -16,7 +16,8 @@ cargo run --release -- --seed 7      # replayable opponent behaviour
 cargo run --release -- --quiet       # no terminal bell
 ```
 
-Needs a terminal at least 80x24. Colour matters: the tells are colour-coded.
+Needs a terminal of at least 100x40 with true colour (any modern terminal). The ring
+scales up in integer steps as the window grows, so a 200x80 window gets 2x pixels.
 
 | Key | Action |
 |---|---|
@@ -33,12 +34,12 @@ Needs a terminal at least 80x24. Colour matters: the tells are colour-coded.
 ## Reading the opponent
 
 Every punch has a wind-up pose. During the first half of the wind-up the
-opponent turns yellow and a fuse bar fills under his feet. During the second
+opponent turns yellow and a fuse bar fills under the sponsor banner. During the second
 half he flashes red: the punch lands when the fuse is full. Hooks pull the
 glove far out to one side, uppercuts crouch with both gloves low, jabs cock
-one glove above the shoulder, and the Enterprise Quote holds up a briefcase
+one glove up by the ear, and the Enterprise Quote holds up a gold briefcase
 while the price ticks up. With hints on, a line under the ropes names the
-punch and the right answer.
+punch and the right answer in the footer.
 
 ## Rules in one breath
 
@@ -51,7 +52,8 @@ followed by a punch inside the counter window does double damage.
 
 ```sh
 cargo test                                # rules + headless 80x24 renders
-cargo test renders -- --nocapture         # print the frames
+cargo test renders -- --nocapture         # print half-block frames as text
+PUNCHOUT_FRAMES=/tmp/frames cargo test dump_frames   # write one PNG per pose
 cargo test balance -- --nocapture         # masher vs patient, ten seeds each
 cargo test histogram -- --nocapture       # event counts for a masher fight
 ```
@@ -62,7 +64,9 @@ rerun, read the table.
 ## Layout
 
 - `src/sim.rs`: the whole game, no terminal dependency, 30 ticks per second
-- `src/render.rs`: sprites and the Punch-Out layout, sim state to the screen
+- `src/pixel.rs`: pixel canvas, half-block flush, 3x5 font, test-only PNG writer
+- `src/art.rs`: fighter rigs, palettes and poses (a pose is coordinates, not a drawing)
+- `src/render.rs`: the Punch-Out layout, bars, banner, overlays
 - `src/main.rs`: input, tick loop, bell
 
 ## Building in a Minimal sandbox
