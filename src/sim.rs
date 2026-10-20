@@ -357,10 +357,47 @@ pub enum Step {
     Wait(u32),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum OppId {
+    Codespaces,
+    Docker,
+    Snyk,
+    Bitnami,
+    Devbox,
+    Flox,
+    Chainguard,
+    Nix,
+}
+
+/// What an opponent's signature move actually does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SpecialKind {
+    /// A big telegraphed punch. Dodging it stuns the opponent.
+    BigPunch { stun_on_dodge: u32 },
+    /// The opponent stops dead for a while. Free hits.
+    Freeze { ticks: u32 },
+    /// A flurry of `count` quick jabs, then a cooldown with no attacks.
+    Burst { count: u32, cooldown: u32 },
+    /// Heals whatever the player dealt in the last `window` ticks.
+    Revoke { window: u32 },
+    /// Slips out of reach and comes back under a new name.
+    Rebrand { ticks: u32 },
+}
+
 #[derive(Clone, Debug)]
 pub struct OpponentSpec {
+    pub id: OppId,
     pub name: &'static str,
     pub nickname: &'static str,
+    /// Names the opponent cycles through on a Rebrand. Empty for everyone else.
+    pub aliases: &'static [&'static str],
+    pub kind: SpecialKind,
+    /// Banner shown when the special is answered (dodged, waited out, etc).
+    pub special_line: &'static str,
+    /// Ticks the opponent spends warming up at the start of round 1.
+    pub prebuild: u32,
+    /// Power multiplier at the end of round 3; 1.0 means no fade.
+    pub fatigue: f32,
     pub health: f32,
     pub regen_per_sec: f32,
     pub speed: f32,
@@ -373,7 +410,8 @@ pub struct OpponentSpec {
     /// Ticks between special attempts.
     pub special_every: u32,
     pub special_name: &'static str,
-    pub special_stun_on_dodge: u32,
+    /// One short word for the corner labels while the special winds up.
+    pub special_short: &'static str,
     pub taunts: [&'static str; 3],
     pub ko_line: &'static str,
     pub lose_line: &'static str,
@@ -404,38 +442,8 @@ impl OpponentSpec {
     }
 }
 
-pub fn chainguard() -> OpponentSpec {
-    OpponentSpec {
-        name: "Chainguard",
-        nickname: "The Zero Day",
-        health: 120.0,
-        regen_per_sec: 24.0,
-        speed: 1.5,
-        tell_bonus: 8,
-        block_chance: 0.9,
-        dodge_chance: 0.05,
-        reaction_delay: 2,
-        patterns: vec![
-            vec![Step::Do(Input::Hook), Step::Wait(ms(500))],
-            vec![Step::Do(Input::Jab), Step::Do(Input::Jab), Step::Wait(ms(400))],
-            vec![Step::Do(Input::Block), Step::Wait(ms(300))],
-            vec![Step::Wait(ms(350))],
-        ],
-        special: Move { stamina: 30.0, damage: 30.0, startup: 45, recovery: 20 },
-        special_every: 15 * TICK_HZ,
-        special_name: "ENTERPRISE QUOTE",
-        special_stun_on_dodge: 60,
-        taunts: [
-            "Zero CVEs. Zero free tier. Zero chance.",
-            "Our guard is SLSA level 3.",
-            "Have you considered a multi-year commitment?",
-        ],
-        ko_line: "Would you like to schedule a call to discuss your defeat?",
-        lose_line: "We'll follow up with a revised quote.",
-        rank: 7,
-        power: 1.0,
-    }
-}
+#[cfg(test)]
+pub use crate::roster::chainguard;
 
 #[derive(Clone, Debug)]
 struct Brain {
@@ -443,6 +451,8 @@ struct Brain {
     wait: u32,
     pending: Option<(Input, u32)>,
     since_special: u32,
+    /// Jabs left in a Burst.
+    burst_left: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -468,6 +478,20 @@ pub struct Match {
     pub banner: Option<(String, u32)>,
     pub special_telegraph: Option<u32>,
     pub rng: Rng,
+    /// Ticks left in a post-Burst cooldown: no attacks, label on screen.
+    pub cooldown: u32,
+    /// Ticks left in a Freeze or prebuild, for the label.
+    pub frozen: u32,
+    /// Ticks left showing the Rebrand name cycle.
+    pub rebrand: u32,
+    /// How many times the opponent has rebranded; indexes `aliases`.
+    pub alias: usize,
+    /// Last Revoke: (hp healed, ticks left to show it).
+    pub revoked: Option<(f32, u32)>,
+    /// Fight ticks elapsed across rounds, for fatigue.
+    pub fought: u32,
+    /// (tick, damage) the player has dealt, for Revoke.
+    dmg_log: Vec<(u64, f32)>,
     brain: Brain,
 }
 
@@ -496,7 +520,23 @@ impl Match {
             banner: None,
             special_telegraph: None,
             rng: Rng::new(seed),
-            brain: Brain { queue: Vec::new(), wait: ms(800), pending: None, since_special: 0 },
+            cooldown: 0,
+            frozen: 0,
+            rebrand: 0,
+            alias: 0,
+            revoked: None,
+            fought: 0,
+            dmg_log: Vec::new(),
+            brain: Brain { queue: Vec::new(), wait: ms(800), pending: None, since_special: 0, burst_left: 0 },
+        }
+    }
+
+    /// The name on the opponent's banner right now.
+    pub fn opp_name(&self) -> &'static str {
+        if self.spec.aliases.is_empty() {
+            self.spec.name
+        } else {
+            self.spec.aliases[self.alias % self.spec.aliases.len()]
         }
     }
 
@@ -531,6 +571,12 @@ impl Match {
                 if t <= 1 {
                     self.phase = Phase::Fighting;
                     self.say("FIGHT", TICK_HZ);
+                    if self.round == 1 && self.spec.prebuild > 0 {
+                        // Codespaces spends the opening warming up.
+                        self.opp.state = State::Stunned(self.spec.prebuild);
+                        self.frozen = self.spec.prebuild;
+                        self.say("PREBUILDING ENVIRONMENT...", self.spec.prebuild);
+                    }
                     return true;
                 }
                 self.phase = Phase::Intro(t - 1);
@@ -558,6 +604,20 @@ impl Match {
     }
 
     fn step_fight(&mut self) -> bool {
+        self.fought += 1;
+        self.cooldown = self.cooldown.saturating_sub(1);
+        self.frozen = self.frozen.saturating_sub(1);
+        self.rebrand = self.rebrand.saturating_sub(1);
+        if let Some((_, t)) = &mut self.revoked {
+            *t = t.saturating_sub(1);
+            if *t == 0 {
+                self.revoked = None;
+            }
+        }
+        // Fatigue: the opponent's power fades toward spec.fatigue over the fight.
+        let progress = (self.fought as f32 / (ROUNDS as f32 * ROUND_TICKS as f32)).min(1.0);
+        self.opp.power = self.spec.power * (1.0 + (self.spec.fatigue - 1.0) * progress);
+
         self.think();
         let p_hit = self.player.tick();
         let o_hit = self.opp.tick();
@@ -568,13 +628,18 @@ impl Match {
                 // jab. A blocked jab does not: answering it only trades damage.
                 self.brain.pending = Some((Input::Jab, 1));
             }
+            if ev.damage > 0.0 {
+                self.dmg_log.push((self.tick, ev.damage));
+            }
             self.events.push(ev);
         }
         if let Some(a) = o_hit {
             let ev = resolve(&mut self.opp, &mut self.player, a, false);
             if a == Action::Special && ev.kind == HitKind::Dodged {
-                self.opp.state = State::Stunned(self.spec.special_stun_on_dodge);
-                self.say("QUOTE DECLINED", TICK_HZ);
+                if let SpecialKind::BigPunch { stun_on_dodge } = self.spec.kind {
+                    self.opp.state = State::Stunned(stun_on_dodge);
+                    self.say(self.spec.special_line, TICK_HZ);
+                }
             }
             self.events.push(ev);
         }
@@ -599,7 +664,11 @@ impl Match {
                 // Ties go to Minimal. It is our game.
                 let won = self.player.health >= self.opp.health;
                 self.phase = Phase::Over { player_won: won };
-                let line = if won { "DECISION: MINIMAL" } else { "DECISION: CHAINGUARD" };
+                let line = if won {
+                    "DECISION: MINIMAL".to_string()
+                } else {
+                    format!("DECISION: {}", self.spec.name.to_uppercase())
+                };
                 self.say(line, u32::MAX);
             } else {
                 self.phase = Phase::Break(BREAK_TICKS);
@@ -677,6 +746,23 @@ impl Match {
                 return;
             }
         }
+        // Mid-Burst: keep jabbing, stamina be damned.
+        if b.burst_left > 0 {
+            b.burst_left -= 1;
+            self.opp.stamina = self.opp.stamina.max(JAB.stamina);
+            self.opp.apply(Input::Jab);
+            if b.burst_left == 0 {
+                if let SpecialKind::Burst { cooldown, .. } = self.spec.kind {
+                    self.cooldown = cooldown;
+                    self.say(self.spec.special_line, TICK_HZ * 2);
+                }
+            }
+            return;
+        }
+        if self.cooldown > 0 {
+            // Rate limited: no attacks until the retry-after passes.
+            return;
+        }
         if b.wait > 0 {
             b.wait -= 1;
             return;
@@ -689,8 +775,7 @@ impl Match {
         }
         if b.since_special >= self.spec.special_every && self.opp.stamina >= self.spec.special.stamina {
             b.since_special = 0;
-            self.opp.apply(Input::Special);
-            self.say(self.spec.special_name, 45);
+            self.fire_special();
             return;
         }
         if b.queue.is_empty() {
@@ -705,6 +790,41 @@ impl Match {
                     // Not enough stamina: rest instead.
                     b.wait = ms(500);
                 }
+            }
+        }
+    }
+
+    fn fire_special(&mut self) {
+        let name = self.spec.special_name;
+        match self.spec.kind {
+            SpecialKind::BigPunch { .. } => {
+                self.opp.apply(Input::Special);
+                self.say(name, 45);
+            }
+            SpecialKind::Freeze { ticks } => {
+                self.opp.state = State::Stunned(ticks);
+                self.frozen = ticks;
+                self.say(name, ticks);
+            }
+            SpecialKind::Burst { count, .. } => {
+                self.brain.burst_left = count;
+                self.say(name, TICK_HZ);
+            }
+            SpecialKind::Revoke { window } => {
+                let since = self.tick.saturating_sub(window as u64);
+                let healed: f32 = self.dmg_log.iter().filter(|(t, _)| *t >= since).map(|(_, d)| d).sum();
+                self.dmg_log.clear();
+                let healed = healed.min(self.opp.max_health - self.opp.health);
+                self.opp.health += healed;
+                self.revoked = Some((healed, TICK_HZ * 2));
+                self.opp.state = State::Recovery(Action::Special, 12);
+                self.say(format!("{name}: {healed:.0} HP REVOKED"), TICK_HZ * 2);
+            }
+            SpecialKind::Rebrand { ticks } => {
+                self.alias += 1;
+                self.rebrand = ticks;
+                self.opp.state = State::Dodging(Side::Right, ticks);
+                self.say(format!("{name}: NOW KNOWN AS {}", self.opp_name().to_uppercase()), ticks);
             }
         }
     }
@@ -926,7 +1046,7 @@ mod ranks {
     //! Run with `cargo test ranks -- --nocapture`.
     use super::*;
 
-    struct Human {
+    pub(super) struct Human {
         reaction: u32,
         scheduled: Option<(Input, u32)>,
         reacted_to: Option<u64>,
@@ -934,7 +1054,11 @@ mod ranks {
     }
 
     impl Human {
-        fn act(&mut self, m: &Match) -> Option<Input> {
+        pub(super) fn new(seed: u64) -> Human {
+            Human { reaction: 8, scheduled: None, reacted_to: None, rng: Rng::new(seed) }
+        }
+
+        pub(super) fn act(&mut self, m: &Match) -> Option<Input> {
             if let Some((i, t)) = self.scheduled {
                 if t <= 1 {
                     self.scheduled = None;
@@ -977,7 +1101,7 @@ mod ranks {
             let mut hp_sum = 0.0;
             let mut rounds = 0u32;
             for seed in 1..=20u64 {
-                let mut h = Human { reaction: 8, scheduled: None, reacted_to: None, rng: Rng::new(seed * 7) };
+                let mut h = Human::new(seed * 7);
                 let mut m = Match::new(chainguard().at_rank(rank), seed);
                 while !matches!(m.phase, Phase::Over { .. }) {
                     if let Some(i) = h.act(&m) {
@@ -995,6 +1119,46 @@ mod ranks {
                 "  rank {rank}: {wins:>2}/20 wins, avg hp when winning {:>5.1}, avg rounds {:.1}",
                 if wins > 0 { hp_sum / wins as f32 } else { 0.0 },
                 rounds as f32 / 20.0
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod card {
+    //! The sloppy human against every opponent at its own rank.
+    //! Run with `cargo test card -- --nocapture`.
+    use super::*;
+    use crate::roster;
+
+    #[test]
+    fn report() {
+        println!("sloppy human (270 ms reaction, 15% misses) vs the card");
+        for spec in roster::all() {
+            let mut wins = 0;
+            let mut hp_sum = 0.0;
+            let mut secs = 0u32;
+            for seed in 1..=20u64 {
+                let mut h = super::ranks::Human::new(seed * 7);
+                let mut m = Match::new(spec.clone(), seed);
+                while !matches!(m.phase, Phase::Over { .. }) {
+                    if let Some(i) = h.act(&m) {
+                        m.player_input(i);
+                    }
+                    m.step();
+                }
+                if matches!(m.phase, Phase::Over { player_won: true }) {
+                    wins += 1;
+                    hp_sum += m.player.health;
+                }
+                secs += m.fought / TICK_HZ;
+            }
+            println!(
+                "  {}. {:<11} {wins:>2}/20 wins, avg hp when winning {:>5.1}, avg fight {:>3}s",
+                spec.rank,
+                spec.name,
+                if wins > 0 { hp_sum / wins as f32 } else { 0.0 },
+                secs / 20
             );
         }
     }

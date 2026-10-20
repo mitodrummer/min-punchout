@@ -143,7 +143,6 @@ fn punch_name(a: Action) -> &'static str {
 }
 
 const CROWD: Rgb = Rgb::hex(0x16112b);
-const BANNER: Rgb = Rgb::hex(0x4b33b5);
 const FLOOR: Rgb = Rgb::hex(0xd9dde6);
 const FLOOR_LINE: Rgb = Rgb::hex(0xb9bfcc);
 const APRON: Rgb = Rgb::hex(0x2b3a6b);
@@ -178,14 +177,21 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
         }
     }
     // Sponsor banner behind the opponent, so you always know who you fight.
-    let name = m.spec.name.to_uppercase();
+    // During a Rebrand the name flickers through the aliases.
+    let look = art::look(m.spec.id);
+    let name = if m.rebrand > 0 && !m.spec.aliases.is_empty() {
+        m.spec.aliases[(m.alias + (m.tick / 3) as usize) % m.spec.aliases.len()].to_uppercase()
+    } else {
+        m.opp_name().to_uppercase()
+    };
     let tw = Canvas::text_width(&name, 2);
-    c.rect(0, 2, w, 14, BANNER);
+    c.rect(0, 2, w, 14, look.banner);
     c.rect(0, 2, w, 1, WHITE);
     c.rect(0, 15, w, 1, WHITE);
-    c.text(cx - tw / 2, 5, &name, 2, WHITE);
+    let name_col = if m.rebrand > 0 && (m.tick / 3) % 2 == 0 { YELLOW } else { WHITE };
+    c.text(cx - tw / 2, 5, &name, 2, name_col);
     for x in [cx - tw / 2 - 12, cx + tw / 2 + 12] {
-        chain_badge(&mut c, x, 9);
+        art::draw_logo(&mut c, x, 9, look.logo, WHITE, look.banner);
     }
     // Floor and apron.
     c.rect(0, 18, w, h - 18, FLOOR);
@@ -220,9 +226,35 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
         None => None,
     };
     c.set_tint(tint);
-    let pose = art::opp_pose(&m.opp, m.tick);
-    art::draw_opponent(&mut c, ox, oy, &art::CHAINGUARD, &pose, m.tick);
+    let pose = art::opp_pose(&m.opp, m.tick, m.spec.id);
+    art::draw_opponent(&mut c, ox, oy, &look, &pose, m.tick);
     c.set_tint(None);
+
+    // Signature-move status labels, top right of the ring.
+    let mut status: Vec<(String, Rgb)> = Vec::new();
+    if m.cooldown > 0 {
+        status.push((format!("RATE LIMITED: RETRY IN {}S", (m.cooldown + TICK_HZ - 1) / TICK_HZ), Rgb::hex(0x7fd3ff)));
+    }
+    if m.frozen > 0 {
+        let label = if m.fought <= m.spec.prebuild + 1 { "PREBUILDING" } else { m.spec.special_name };
+        status.push((format!("{}: {}S", label, (m.frozen + TICK_HZ - 1) / TICK_HZ), YELLOW));
+    }
+    if let Some((hp, _)) = m.revoked {
+        status.push((format!("{hp:.0} HP REVOKED"), RED));
+    }
+    if m.spec.fatigue < 1.0 {
+        // The minute counter: how much of the opponent's billing is used up.
+        let used = (m.fought as f32 / (3.0 * crate::sim::ROUND_TICKS as f32)).min(1.0);
+        status.push((format!("CORE HOURS: {:>3.0}%", used * 100.0), Rgb::hex(0xc9d1d9)));
+    }
+    // Stacked up the left side of the floor, clear of both fighters.
+    for (i, (s, col)) in status.iter().enumerate() {
+        let sw = Canvas::text_width(s, 1);
+        let x = 3;
+        let y = 47 - i as i32 * 9;
+        c.rect(x - 2, y - 2, sw + 4, 9, Rgb::hex(0x14141c));
+        c.text(x, y, s, 1, *col);
+    }
 
     // Tell fuse and punch name beside the head.
     if let Some((a, p)) = tell {
@@ -231,18 +263,19 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
         let bw = tw + 24;
         c.rect(cx - bw / 2 - 1, 16, bw + 2, 4, Rgb::hex(0x14141c));
         c.rect(cx - bw / 2, 17, (bw as f32 * p) as i32, 2, color);
-        // Punch name either side of the head, clamped inside the ring.
-        let label = punch_name(a);
+        // Punch name in both bottom corners, clear of both fighters.
+        let label = match a {
+            Action::Special => m.spec.special_short,
+            _ => punch_name(a),
+        };
         let lw = Canvas::text_width(label, 1);
-        let lx = (ox - lw - 8).max(1);
-        let rx = (ox + 50).min(w - lw - 5);
-        for x in [lx, rx] {
-            c.rect(x - 2, 22, lw + 4, 9, Rgb::hex(0x14141c));
-            c.text(x, 24, label, 1, color);
+        for x in [3, w - lw - 3] {
+            c.rect(x - 2, 56, lw + 4, 9, Rgb::hex(0x14141c));
+            c.text(x, 58, label, 1, color);
         }
     }
     // Enterprise Quote: the price ticks up beside the briefcase.
-    if let State::Startup(Action::Special, left) = m.opp.state {
+    if let (State::Startup(Action::Special, left), crate::sim::OppId::Chainguard) = (m.opp.state, m.spec.id) {
         let total = m.opp.startup_ticks(Action::Special).max(1) as f32;
         let progress = 1.0 - (left as f32 / total).clamp(0.0, 1.0);
         let price = (progress * 250_000.0) as u32;
@@ -270,9 +303,13 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
     art::draw_player(&mut c, px, py, &art::MINIMAL, &ppose);
     c.set_tint(None);
 
-    // Damage text beside whoever got hit.
+    // Damage text beside whoever got hit. Snyk's hits come with a severity.
     for ev in &m.events {
         let (txt, color) = match ev.kind {
+            HitKind::Hit if !ev.by_player && m.spec.id == crate::sim::OppId::Snyk => {
+                let sev = if m.tick % 4 == 0 { "MEDIUM" } else { "CRITICAL" };
+                (format!("{sev} -{:.0}", ev.damage), RED)
+            }
             HitKind::Hit => (format!("-{:.0}", ev.damage), WHITE),
             HitKind::Counter => (format!("COUNTER -{:.0}", ev.damage), MAGENTA),
             HitKind::Chip => (format!("BLOCKED -{:.0}", ev.damage), Rgb::hex(0x7fd3ff)),
@@ -302,7 +339,7 @@ fn overlay_text(f: &mut Frame, area: Rect, m: &Match, view: &View) {
             Phase::Over { player_won } => (
                 Some(if player_won { "YOU WIN" } else { "YOU LOSE" }),
                 s.as_str(),
-                Some("[r] rematch   [q] quit"),
+                Some("[r] rematch   [n] next opponent   [q] quit"),
             ),
             _ => (None, s.as_str(), None),
         };
@@ -319,13 +356,6 @@ fn overlay_text(f: &mut Frame, area: Rect, m: &Match, view: &View) {
         if let Some(t) = tail {
             blit_str(buf, area, x, y + 1, &pad(t), style.remove_modifier(Modifier::BOLD));
         }
-    }
-}
-
-fn chain_badge(c: &mut Canvas, cx: i32, cy: i32) {
-    for dx in [-3, 3] {
-        c.ellipse(cx + dx, cy, 3.6, 2.4, WHITE);
-        c.ellipse(cx + dx, cy, 2.0, 1.0, BANNER);
     }
 }
 
@@ -360,7 +390,7 @@ fn draw_footer(f: &mut Frame, area: Rect, m: &Match, view: &View) {
             Action::Jab => "jab coming: block or dodge",
             Action::Hook => "HOOK coming: dodge",
             Action::Uppercut => "UPPERCUT coming: dodge, do not block",
-            Action::Special => "ENTERPRISE QUOTE: DODGE IT",
+            Action::Special => "SIGNATURE MOVE: DODGE IT",
         }),
         _ => None,
     };
@@ -428,7 +458,7 @@ mod tests {
         m.player_input(Input::Jab);
         let out = render(&m, 120, 50);
         println!("{out}");
-        assert!(out.contains("ENTERPRISE QUOTE"));
+        assert!(out.contains("SIGNATURE MOVE"));
     }
 
     #[test]
@@ -489,6 +519,20 @@ mod frames {
             }
             let c = paint_ring(&m, RING_W, RING_H);
             png::write(&c, &format!("{dir}/{name}.png"), 6);
+        }
+        // One idle frame per opponent, plus each one's special wind-up.
+        for spec in crate::roster::all() {
+            let n = spec.name.to_ascii_lowercase();
+            let mut m = Match::new(spec, 5);
+            for _ in 0..(INTRO_TICKS + 40) {
+                m.step();
+            }
+            m.banner = None;
+            m.frozen = 0;
+            m.opp.state = State::Idle;
+            png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/opp_{n}.png"), 6);
+            m.opp.state = State::Startup(Action::Special, 10);
+            png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/opp_{n}_special.png"), 6);
         }
     }
 }

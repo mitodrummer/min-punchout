@@ -1,6 +1,7 @@
 mod art;
 mod pixel;
 mod render;
+mod roster;
 mod sim;
 
 use std::io::Write;
@@ -14,6 +15,7 @@ struct Opts {
     seed: u64,
     bell: bool,
     rank: Option<u8>,
+    opponent: Option<String>,
 }
 
 fn parse_opts() -> Opts {
@@ -24,6 +26,7 @@ fn parse_opts() -> Opts {
             .unwrap_or(1),
         bell: true,
         rank: None,
+        opponent: None,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -39,8 +42,19 @@ fn parse_opts() -> Opts {
                     opts.rank = Some(v);
                 }
             }
+            "--opponent" | "-o" => {
+                let name = args.next().unwrap_or_default();
+                if roster::by_name(&name).is_none() {
+                    eprintln!("unknown opponent '{name}'. The card, easiest first:");
+                    for s in roster::all() {
+                        eprintln!("  {}. {} \"{}\"", s.rank, s.name, s.nickname);
+                    }
+                    std::process::exit(2);
+                }
+                opts.opponent = Some(name);
+            }
             "-h" | "--help" => {
-                println!("punchout [--seed N] [--quiet] [--rank 1-8]");
+                println!("punchout [--opponent NAME] [--rank 1-8] [--seed N] [--quiet]");
                 std::process::exit(0);
             }
             _ => {}
@@ -67,11 +81,22 @@ fn main() -> std::io::Result<()> {
 
 fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<()> {
     let tick = Duration::from_micros(1_000_000 / TICK_HZ as u64);
-    let spec = || match opts.rank {
-        Some(r) => sim::chainguard().at_rank(r),
-        None => sim::chainguard(),
+    // Opponent: named on the command line, else random for this seed. The
+    // rank dial, if given, re-tunes whoever was picked.
+    let pick = |seed: u64, named: bool| -> sim::OpponentSpec {
+        let base = match (&opts.opponent, named) {
+            (Some(n), true) => roster::by_name(n).expect("validated in parse_opts"),
+            _ => {
+                let all = roster::all();
+                all[(seed % all.len() as u64) as usize].clone()
+            }
+        };
+        match opts.rank {
+            Some(r) => base.at_rank(r),
+            None => base,
+        }
     };
-    let mut m = Match::new(spec(), opts.seed);
+    let mut m = Match::new(pick(opts.seed, true), opts.seed);
     let mut view = render::View { show_debug: false, show_hints: true, last_events: Vec::new() };
     let mut next = Instant::now() + tick;
 
@@ -94,7 +119,14 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
                         KeyCode::Char('h') => view.show_hints = !view.show_hints,
                         KeyCode::Char('r') => {
                             if matches!(m.phase, Phase::Over { .. }) {
-                                m = Match::new(spec(), opts.seed.wrapping_add(m.tick));
+                                let seed = opts.seed.wrapping_add(m.tick);
+                                m = Match::new(pick(opts.seed, true), seed);
+                            }
+                        }
+                        KeyCode::Char('n') => {
+                            if matches!(m.phase, Phase::Over { .. }) {
+                                let seed = opts.seed.wrapping_add(m.tick).wrapping_mul(2654435761);
+                                m = Match::new(pick(seed, false), seed);
                             }
                         }
                         KeyCode::Char('j') => {
