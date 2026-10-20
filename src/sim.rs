@@ -85,6 +85,8 @@ pub struct Fighter {
     pub regen_per_sec: f32,
     /// Multiplies startup and recovery. >1 is slower.
     pub speed: f32,
+    /// Extra wind-up ticks added to every punch. Gives opponents a readable tell.
+    pub tell_bonus: u32,
     pub state: State,
     pub counter_window: u32,
     /// Consecutive ticks spent in Idle.
@@ -105,6 +107,7 @@ impl Fighter {
             stamina: MAX_STAMINA,
             regen_per_sec: STAMINA_REGEN_PER_SEC,
             speed: 1.0,
+            tell_bonus: 0,
             state: State::Idle,
             counter_window: 0,
             idle_ticks: 0,
@@ -124,6 +127,13 @@ impl Fighter {
 
     fn scaled(&self, t: u32) -> u32 {
         ((t as f32) * self.speed).round().max(1.0) as u32
+    }
+
+    /// Full wind-up length for a punch, including this fighter's tell bonus.
+    pub fn startup_ticks(&self, a: Action) -> u32 {
+        // Jabs stay quick: they are the punch you block, not the one you read.
+        let bonus = if a == Action::Jab { 0 } else { self.tell_bonus };
+        self.scaled(self.mv(a).startup) + bonus
     }
 
     pub fn mv(&self, a: Action) -> Move {
@@ -153,7 +163,7 @@ impl Fighter {
                     return false;
                 }
                 self.stamina -= m.stamina;
-                self.state = State::Startup(a, self.scaled(m.startup));
+                self.state = State::Startup(a, self.startup_ticks(a));
                 true
             }
             Input::Block => {
@@ -188,7 +198,10 @@ impl Fighter {
         } else if self.stamina >= EXHAUSTED_RECOVER {
             self.winded = false;
         }
-        if !matches!(self.state, State::Idle) {
+        // Only attacking (and getting stunned) resets the regen clock. Blocking
+        // and dodging pause regen but do not restart the delay, so a guard is
+        // sustainable while a flurry of punches is not.
+        if matches!(self.state, State::Startup(..) | State::Recovery(..) | State::Stunned(_)) {
             self.idle_ticks = 0;
         }
         match self.state {
@@ -281,7 +294,7 @@ fn resolve(att: &mut Fighter, def: &mut Fighter, action: Action, by_player: bool
         // A jab interrupts a heavy punch only in the first half of its wind-up.
         // Late in the swing the heavy punch is committed and lands regardless.
         State::Startup(heavy @ (Action::Uppercut | Action::Special), left)
-            if action == Action::Jab && left * 2 > def.scaled(def.mv(heavy).startup) =>
+            if action == Action::Jab && left * 2 > def.startup_ticks(heavy) =>
         {
             ev.kind = HitKind::Interrupt;
             ev.damage = base;
@@ -346,6 +359,7 @@ pub struct OpponentSpec {
     pub health: f32,
     pub regen_per_sec: f32,
     pub speed: f32,
+    pub tell_bonus: u32,
     pub block_chance: f32,
     pub dodge_chance: f32,
     pub reaction_delay: u32,
@@ -366,7 +380,8 @@ pub fn chainguard() -> OpponentSpec {
         nickname: "The Zero Day",
         health: 120.0,
         regen_per_sec: 24.0,
-        speed: 1.35,
+        speed: 1.5,
+        tell_bonus: 8,
         block_chance: 0.9,
         dodge_chance: 0.05,
         reaction_delay: 2,
@@ -434,6 +449,7 @@ impl Match {
         opp.max_health = spec.health;
         opp.regen_per_sec = spec.regen_per_sec;
         opp.speed = spec.speed;
+        opp.tell_bonus = spec.tell_bonus;
         opp.special = Some(spec.special);
         Match {
             player: Fighter::new("Minimal"),
@@ -514,8 +530,9 @@ impl Match {
         let o_hit = self.opp.tick();
         if let Some(a) = p_hit {
             let ev = resolve(&mut self.player, &mut self.opp, a, true);
-            if ev.kind == HitKind::Chip {
-                // A blocker answers with a jab the moment the guard drops.
+            if ev.kind == HitKind::Chip && a == Action::Hook {
+                // A blocked hook leaves a long enough recovery to punish with a
+                // jab. A blocked jab does not: answering it only trades damage.
                 self.brain.pending = Some((Input::Jab, 1));
             }
             self.events.push(ev);
@@ -567,8 +584,11 @@ impl Match {
             return;
         }
         // Scheduled reaction fires first.
+        // A reaction scheduled with delay N fires on the Nth think after it
+        // was scheduled, so a 2-tick reaction to a 3-tick jab lands the block
+        // before the jab does.
         if let Some((input, delay)) = b.pending {
-            if delay == 0 {
+            if delay <= 1 {
                 b.pending = None;
                 self.opp.apply(input);
                 return;
@@ -584,6 +604,9 @@ impl Match {
         let open = match self.player.state {
             State::Recovery(_, t) => t >= hook_lands_in,
             State::Stunned(t) => t >= hook_lands_in,
+            // Never start a punish while a punch is already on its way in;
+            // that is what blocking is for.
+            State::Startup(..) => false,
             _ => self.player.exhausted(),
         };
         if open {
@@ -623,6 +646,12 @@ impl Match {
         }
         if b.wait > 0 {
             b.wait -= 1;
+            return;
+        }
+        // A blocker does not trade with a tiring masher. Keep the guard up and
+        // let them run dry; the punish rule above takes over once they do.
+        if self.player.stamina < 40.0 && !self.player.exhausted() && self.spec.block_chance >= 0.75 {
+            b.wait = 3;
             return;
         }
         if b.since_special >= self.spec.special_every && self.opp.stamina >= self.spec.special.stamina {
@@ -822,9 +851,15 @@ mod histogram {
         let mut m = Match::new(chainguard(), 1);
         let mut hist: BTreeMap<String, (u32, f32)> = BTreeMap::new();
         let mut opp_states: BTreeMap<String, u32> = BTreeMap::new();
+        let mut landed_on: BTreeMap<String, u32> = BTreeMap::new();
         while !matches!(m.phase, Phase::Over { .. }) {
+            let about_to_land = matches!(m.player.state, State::Startup(Action::Jab, 1));
+            let opp_before = format!("{:?}", m.opp.state).split('(').next().unwrap_or("").to_string();
             m.player_input(Input::Jab);
             m.step();
+            if about_to_land && m.events.iter().any(|e| e.by_player && e.kind == HitKind::Hit) {
+                *landed_on.entry(opp_before).or_default() += 1;
+            }
             if m.phase == Phase::Fighting {
                 let k = match m.opp.state {
                     State::Idle => "Idle",
@@ -848,5 +883,6 @@ mod histogram {
             println!("  {k:<28} n={n:>3} dmg={d:>6.1}");
         }
         println!("opp state ticks: {opp_states:?}");
+        println!("opp state when a player jab landed clean: {landed_on:?}");
     }
 }

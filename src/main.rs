@@ -59,7 +59,7 @@ fn main() -> std::io::Result<()> {
 fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<()> {
     let tick = Duration::from_micros(1_000_000 / TICK_HZ as u64);
     let mut m = Match::new(sim::chainguard(), opts.seed);
-    let mut view = render::View { show_debug: false, last_events: Vec::new() };
+    let mut view = render::View { show_debug: false, show_hints: true, last_events: Vec::new() };
     let mut next = Instant::now() + tick;
 
     loop {
@@ -78,6 +78,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
                     match k.code {
                         KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                         KeyCode::Tab => view.show_debug = !view.show_debug,
+                        KeyCode::Char('h') => view.show_hints = !view.show_hints,
                         KeyCode::Char('r') => {
                             if matches!(m.phase, Phase::Over { .. }) {
                                 m = Match::new(sim::chainguard(), opts.seed.wrapping_add(m.tick));

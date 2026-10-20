@@ -1,15 +1,19 @@
-//! Maps sim state to ratatui widgets. No game logic lives here.
+//! Maps sim state to the screen. Punch-Out layout: the opponent large at the
+//! top facing you, Minimal small at the bottom seen from behind.
+//! No game logic lives here.
 
+use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Gauge, Paragraph};
+use ratatui::widgets::{Gauge, Paragraph};
 use ratatui::Frame;
 
-use crate::sim::{Action, Fighter, HitKind, Match, Phase, Side, State, TICK_HZ};
+use crate::sim::{Action, Fighter, HitKind, Match, Phase, Side, State, MAX_STAMINA, TICK_HZ};
 
 pub struct View {
     pub show_debug: bool,
+    pub show_hints: bool,
     pub last_events: Vec<String>,
 }
 
@@ -17,19 +21,19 @@ pub fn draw(f: &mut Frame, m: &Match, view: &View) {
     let area = f.area();
     let rows = Layout::vertical([
         Constraint::Length(3), // bars
-        Constraint::Length(1), // round / clock
-        Constraint::Min(10),   // arena
-        Constraint::Length(3), // banner
-        Constraint::Length(2), // help + debug
+        Constraint::Length(1), // clock
+        Constraint::Min(17),   // ring
+        Constraint::Length(1), // help / debug
     ])
     .split(area);
 
     draw_bars(f, rows[0], m);
     draw_clock(f, rows[1], m);
-    draw_arena(f, rows[2], m);
-    draw_banner(f, rows[3], m);
-    draw_footer(f, rows[4], m, view);
+    draw_ring(f, rows[2], m, view);
+    draw_footer(f, rows[3], m, view);
 }
+
+// ---------------------------------------------------------------- top strip
 
 fn health_color(ratio: f64) -> Color {
     if ratio > 0.5 {
@@ -42,15 +46,18 @@ fn health_color(ratio: f64) -> Color {
 }
 
 fn fighter_bars(f: &mut Frame, area: Rect, fi: &Fighter, right: bool) {
-    let cols = Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
+    let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
         .split(area);
-    let title = Line::from(vec![
-        Span::styled(fi.name, Style::new().bold()),
-        Span::raw(if fi.exhausted() { "  EXHAUSTED" } else { "" }).red().bold(),
-        Span::raw(if fi.counter_window > 0 { "  COUNTER!" } else { "" }).magenta().bold(),
-    ]);
+    let mut spans = vec![Span::styled(fi.name, Style::new().bold())];
+    if fi.exhausted() {
+        spans.push(Span::raw("  EXHAUSTED").red().bold());
+    }
+    if fi.counter_window > 0 {
+        spans.push(Span::raw("  COUNTER!").magenta().bold());
+    }
+    let title = Line::from(spans);
     let title = if right { title.alignment(Alignment::Right) } else { title };
-    f.render_widget(Paragraph::new(title), cols[0]);
+    f.render_widget(Paragraph::new(title), rows[0]);
 
     let hr = (fi.health / fi.max_health).clamp(0.0, 1.0) as f64;
     f.render_widget(
@@ -58,85 +65,386 @@ fn fighter_bars(f: &mut Frame, area: Rect, fi: &Fighter, right: bool) {
             .gauge_style(Style::new().fg(health_color(hr)).bg(Color::DarkGray))
             .ratio(hr)
             .label(format!("HP {:>3.0}", fi.health)),
-        cols[1],
+        rows[1],
     );
-    let sr = (fi.stamina / crate::sim::MAX_STAMINA).clamp(0.0, 1.0) as f64;
+    let sr = (fi.stamina / MAX_STAMINA).clamp(0.0, 1.0) as f64;
     f.render_widget(
         Gauge::default()
             .gauge_style(Style::new().fg(Color::Blue).bg(Color::DarkGray))
             .ratio(sr)
             .label(format!("ST {:>3.0}", fi.stamina)),
-        cols[2],
+        rows[2],
     );
 }
 
 fn draw_bars(f: &mut Frame, area: Rect, m: &Match) {
     let halves = Layout::horizontal([
-        Constraint::Percentage(45),
-        Constraint::Percentage(10),
-        Constraint::Percentage(45),
+        Constraint::Percentage(44),
+        Constraint::Percentage(12),
+        Constraint::Percentage(44),
     ])
     .split(area);
     fighter_bars(f, halves[0], &m.player, false);
     fighter_bars(f, halves[2], &m.opp, true);
+    let secs = m.round_ticks_left / TICK_HZ;
+    let clock = Text::from(vec![
+        Line::from(format!("ROUND {}", m.round)).bold(),
+        Line::from(format!("{}:{:02}", secs / 60, secs % 60)).bold(),
+    ]);
+    f.render_widget(Paragraph::new(clock).alignment(Alignment::Center), halves[1]);
 }
 
 fn draw_clock(f: &mut Frame, area: Rect, m: &Match) {
-    let secs = m.round_ticks_left / TICK_HZ;
-    let text = format!("MINIMAL  vs  {} \"{}\"     ROUND {}/3   {:02}:{:02}", m.spec.name.to_uppercase(), m.spec.nickname, m.round, secs / 60, secs % 60);
-    f.render_widget(Paragraph::new(text).alignment(Alignment::Center).bold(), area);
+    let text = format!("MINIMAL  vs  {} \"{}\"", m.spec.name.to_uppercase(), m.spec.nickname);
+    f.render_widget(Paragraph::new(text).alignment(Alignment::Center).dim(), area);
 }
 
-/// Prototype "sprites": boxes whose shape changes with state. Art comes later.
-fn sprite(fi: &Fighter, facing_right: bool) -> Vec<String> {
-    let (label, arm) = match fi.state {
-        State::Idle => ("idle", "  "),
-        State::Startup(a, _) => (tell_label(a), ".."),
-        State::Recovery(a, _) => (action_label(a), "=="),
-        State::Blocking(_) => ("BLOCK", "||"),
-        State::Dodging(Side::Left, _) => ("dodge<", "  "),
-        State::Dodging(Side::Right, _) => ("dodge>", "  "),
-        State::Stunned(_) => ("* STUN *", "~~"),
-    };
-    let flash = fi.hit_flash > 0;
-    let head = if flash { "(x_x)" } else if matches!(fi.state, State::Stunned(_)) { "(@_@)" } else { "(o_o)" };
-    let shift = match fi.state {
-        State::Dodging(Side::Left, _) => "  ",
-        State::Dodging(Side::Right, _) => "      ",
-        _ => "    ",
-    };
-    let body = if facing_right {
-        vec![
-            format!("{shift}  {head}  "),
-            format!("{shift}  /|||\\{arm}"),
-            format!("{shift} | ||| |  "),
-            format!("{shift}   | |    "),
-            format!("{shift}  _| |_   "),
-        ]
+// ---------------------------------------------------------------- sprites
+
+/// Where in the wind-up a fighter is: 0.0 just started, 1.0 about to land.
+fn tell_progress(fi: &Fighter) -> Option<(Action, f32)> {
+    if let State::Startup(a, left) = fi.state {
+        let total = fi.startup_ticks(a).max(1) as f32;
+        Some((a, 1.0 - (left as f32 / total).clamp(0.0, 1.0)))
     } else {
-        vec![
-            format!("{shift}  {head}  "),
-            format!("{shift}{arm}/|||\\  "),
-            format!("{shift} | ||| |  "),
-            format!("{shift}   | |    "),
-            format!("{shift}  _| |_   "),
-        ]
-    };
-    let mut out = vec![format!("{:^14}", label)];
-    out.extend(body);
-    out
-}
-
-fn tell_label(a: Action) -> &'static str {
-    match a {
-        Action::Jab => "jab..",
-        Action::Hook => "HOOK..",
-        Action::Uppercut => "UPPER!!",
-        Action::Special => "!!! SPECIAL !!!",
+        None
     }
 }
 
-fn action_label(a: Action) -> &'static str {
+/// Chainguard, facing you. 27 columns, 11 rows. Picked by state.
+fn opp_sprite(fi: &Fighter) -> &'static [&'static str] {
+    use Action::*;
+    if fi.hit_flash > 0 && !matches!(fi.state, State::Stunned(_)) {
+        return &OPP_HIT;
+    }
+    match fi.state {
+        State::Idle => &OPP_IDLE,
+        State::Startup(Jab, _) => &OPP_JAB_WINDUP,
+        State::Recovery(Jab, _) => &OPP_JAB,
+        State::Startup(Hook, _) => &OPP_HOOK_WINDUP,
+        State::Recovery(Hook, _) => &OPP_HOOK,
+        State::Startup(Uppercut, _) => &OPP_UPPER_WINDUP,
+        State::Recovery(Uppercut, _) => &OPP_UPPER,
+        State::Startup(Special, _) => &OPP_SPECIAL_WINDUP,
+        State::Recovery(Special, _) => &OPP_SPECIAL,
+        State::Blocking(_) => &OPP_BLOCK,
+        State::Dodging(..) => &OPP_IDLE,
+        State::Stunned(_) => &OPP_STUNNED,
+    }
+}
+
+const OPP_IDLE: [&str; 11] = [
+    "         .---------.         ",
+    "        /  _     _  \\        ",
+    "       |  (o)   (o)  |       ",
+    "       |      >      |       ",
+    "        \\   .___.   /        ",
+    "    .--. '---------' .--.    ",
+    "   ( () )|           |( () )   ",
+    "    '--' |   0 CVE   | '--'    ",
+    "      \\__|           |__/      ",
+    "         |___________|       ",
+    "         |   |   |   |       ",
+];
+
+const OPP_JAB_WINDUP: [&str; 11] = [
+    "         .---------.    .--. ",
+    "        /  _     _  \\  ( () )",
+    "       |  (o)   (o)  |  '--' ",
+    "       |      >      |   ||  ",
+    "        \\   .___.   /    ||  ",
+    "    .--. '---------'____//   ",
+    "   ( () )|           |       ",
+    "    '--' |   0 CVE   |       ",
+    "      \\__|           |       ",
+    "         |___________|       ",
+    "         |   |   |   |       ",
+];
+
+const OPP_JAB: [&str; 11] = [
+    "         .---------.         ",
+    "        /  _     _  \\        ",
+    "       |  (o)   (o)  |       ",
+    "       |      >   .--------. ",
+    "        \\   .___ (    ()    )",
+    "    .--. '------- '--------' ",
+    "   ( () )|           |       ",
+    "    '--' |   0 CVE   |       ",
+    "      \\__|           |       ",
+    "         |___________|       ",
+    "         |   |   |   |       ",
+];
+
+const OPP_HOOK_WINDUP: [&str; 11] = [
+    "             .---------.     ",
+    "            /  _     _  \\    ",
+    "           |  (o)   (o)  |   ",
+    "           |      <      |   ",
+    "            \\   .___.   /    ",
+    " .--.       '---------'  .--.",
+    "( () )     |           |( () )",
+    " '--'______|   0 CVE   | '--'",
+    "           |           |__/  ",
+    "           |___________|     ",
+    "           |   |   |   |     ",
+];
+
+const OPP_HOOK: [&str; 11] = [
+    "         .---------.         ",
+    "        /  _     _  \\        ",
+    "       |  (o)   (o)  |       ",
+    "  .--------.  >      |       ",
+    " (    ()    )__.   /         ",
+    "  '--------'-------' .--.    ",
+    "         |           |( () )  ",
+    "         |   0 CVE   | '--'   ",
+    "         |           |__/     ",
+    "         |___________|        ",
+    "         |   |   |   |        ",
+];
+
+const OPP_UPPER_WINDUP: [&str; 11] = [
+    "                             ",
+    "                             ",
+    "         .---------.         ",
+    "        /  _     _  \\        ",
+    "       |  (o)   (o)  |       ",
+    "       |      v      |       ",
+    "        \\   .___.   /        ",
+    "         '---------'         ",
+    "         |   0 CVE   |       ",
+    "   .--.  |           |  .--. ",
+    "  ( () )_|___________|_( () )",
+];
+
+const OPP_UPPER: [&str; 11] = [
+    "            .--.             ",
+    "           ( () )            ",
+    "            '--'             ",
+    "         .---||----.         ",
+    "        /  _ ||  _  \\        ",
+    "       |  (o)||(o)   |       ",
+    "       |     ||      |       ",
+    "        \\   .||_.   /        ",
+    "         '---||----'         ",
+    "         |   0 CVE   |  .--. ",
+    "         |___________|_( () )",
+];
+
+const OPP_BLOCK: [&str; 11] = [
+    "         .---------.         ",
+    "        /.--.   .--.\\        ",
+    "       |( () ) ( () )|       ",
+    "       | '--'   '--' |       ",
+    "        \\   .___.   /        ",
+    "         '---------'         ",
+    "         |           |       ",
+    "         |   0 CVE   |       ",
+    "         |           |       ",
+    "         |___________|       ",
+    "         |   |   |   |       ",
+];
+
+const OPP_STUNNED: [&str; 11] = [
+    "      *  .---------.  *      ",
+    "        /  _     _  \\        ",
+    "       |  (x)   (x)  |   *   ",
+    "       |      o      |       ",
+    "   *    \\   .___.   /        ",
+    "         '---------'         ",
+    "    .--. |           | .--.  ",
+    "   ( () )|   0 CVE   |( () ) ",
+    "    '--' |           | '--'  ",
+    "         |___________|       ",
+    "         |   |   |   |       ",
+];
+
+const OPP_SPECIAL_WINDUP: [&str; 11] = [
+    "         .---------.    _____",
+    "        /  _     _  \\  |$$$$$|",
+    "       |  ($)   ($)  | |QUOTE|",
+    "       |      >      | |_____|",
+    "        \\   .___.   /    ||  ",
+    "    .--. '---------'____//   ",
+    "   ( () )|           |       ",
+    "    '--' |   0 CVE   |       ",
+    "      \\__|           |       ",
+    "         |___________|       ",
+    "         |   |   |   |       ",
+];
+
+const OPP_SPECIAL: [&str; 11] = [
+    "         .---------.         ",
+    "        /  _     _  \\        ",
+    "       |  ($)   ($)  |       ",
+    "       .-------------.       ",
+    "      (               )      ",
+    "     (     ( $$$ )     )     ",
+    "      (               )      ",
+    "       '-------------'       ",
+    "         |   0 CVE   |       ",
+    "         |___________|       ",
+    "         |   |   |   |       ",
+];
+
+const OPP_HIT: [&str; 11] = [
+    "            .---------.      ",
+    "           /  _     _  \\     ",
+    "          |  (>)   (<)  |    ",
+    "          |      o      |    ",
+    "           \\   .___.   /     ",
+    "    .--.    '---------'.--.  ",
+    "   ( () )  |           ( () )",
+    "    '--'   |   0 CVE   |'--' ",
+    "      \\____|           |     ",
+    "           |___________|     ",
+    "           |   |   |   |     ",
+];
+
+/// Minimal, seen from behind. 13 columns, 5 rows.
+fn player_sprite(fi: &Fighter) -> &'static [&'static str] {
+    use Action::*;
+    match fi.state {
+        State::Idle => &P_IDLE,
+        State::Startup(Jab, _) | State::Recovery(Jab, _) => &P_JAB,
+        State::Startup(Hook, _) | State::Recovery(Hook, _) => &P_HOOK,
+        State::Startup(Uppercut, _) | State::Recovery(Uppercut, _) => &P_UPPER,
+        State::Startup(Special, _) | State::Recovery(Special, _) => &P_UPPER,
+        State::Blocking(_) => &P_BLOCK,
+        State::Dodging(Side::Left, _) => &P_DODGE_L,
+        State::Dodging(Side::Right, _) => &P_DODGE_R,
+        State::Stunned(_) => &P_STUNNED,
+    }
+}
+
+const P_IDLE: [&str; 5] = [
+    "    .---.    ",
+    "   /     \\   ",
+    "  (O)   (O)  ",
+    "   |     |   ",
+    "   |_____|   ",
+];
+const P_JAB: [&str; 5] = [
+    "          (O)",
+    "    .---. /  ",
+    "   /     \\   ",
+    "  (O)    |   ",
+    "   |_____|   ",
+];
+const P_HOOK: [&str; 5] = [
+    " (O)         ",
+    "   \\.---.    ",
+    "   /     \\   ",
+    "   |    (O)  ",
+    "   |_____|   ",
+];
+const P_UPPER: [&str; 5] = [
+    "     (O)     ",
+    "    .-|-.    ",
+    "   /     \\   ",
+    "  (O)    |   ",
+    "   |_____|   ",
+];
+const P_BLOCK: [&str; 5] = [
+    "   (O) (O)   ",
+    "    .---.    ",
+    "   /     \\   ",
+    "   |     |   ",
+    "   |_____|   ",
+];
+const P_DODGE_L: [&str; 5] = [
+    "  .---.      ",
+    " /     \\     ",
+    "(O)   (O)    ",
+    " \\     \\     ",
+    "  \\_____\\    ",
+];
+const P_DODGE_R: [&str; 5] = [
+    "      .---.  ",
+    "     /     \\ ",
+    "    (O)   (O)",
+    "     /     / ",
+    "    /_____/  ",
+];
+const P_STUNNED: [&str; 5] = [
+    "  * .---. *  ",
+    "   /     \\   ",
+    "   | ~ ~ |   ",
+    "  (O)   (O)  ",
+    "   |_____|   ",
+];
+
+// ---------------------------------------------------------------- ring
+
+/// Write a sprite at (x, y) with one style, clipped to `area`.
+fn blit(buf: &mut Buffer, area: Rect, x: i32, y: i32, lines: &[&str], style: Style) {
+    for (i, line) in lines.iter().enumerate() {
+        let yy = y + i as i32;
+        if yy < area.y as i32 || yy >= area.bottom() as i32 {
+            continue;
+        }
+        for (j, ch) in line.chars().enumerate() {
+            if ch == ' ' {
+                continue; // transparent
+            }
+            let xx = x + j as i32;
+            if xx < area.x as i32 || xx >= area.right() as i32 {
+                continue;
+            }
+            buf[(xx as u16, yy as u16)].set_char(ch).set_style(style);
+        }
+    }
+}
+
+fn blit_str(buf: &mut Buffer, area: Rect, x: i32, y: u16, s: &str, style: Style) {
+    if y < area.y || y >= area.bottom() {
+        return;
+    }
+    for (j, ch) in s.chars().enumerate() {
+        let xx = x + j as i32;
+        if xx < area.x as i32 || xx >= area.right() as i32 {
+            continue;
+        }
+        buf[(xx as u16, y)].set_char(ch).set_style(style);
+    }
+}
+
+fn opp_style(m: &Match) -> Style {
+    let base = Style::new().fg(Color::White);
+    if m.opp.hit_flash > 0 {
+        return Style::new().fg(Color::Red).add_modifier(Modifier::BOLD);
+    }
+    match tell_progress(&m.opp) {
+        Some((_, p)) if p < 0.5 => Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        Some(_) => {
+            // Flash in the second half of the wind-up: the punch is coming now.
+            if (m.tick / 2) % 2 == 0 {
+                Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)
+            } else {
+                Style::new().fg(Color::LightRed).add_modifier(Modifier::BOLD | Modifier::REVERSED)
+            }
+        }
+        None => match m.opp.state {
+            State::Stunned(_) => Style::new().fg(Color::Magenta),
+            State::Blocking(_) => Style::new().fg(Color::Cyan),
+            _ => base,
+        },
+    }
+}
+
+fn player_style(m: &Match) -> Style {
+    if m.player.hit_flash > 0 {
+        Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else if m.player.counter_window > 0 {
+        Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+    } else if matches!(m.player.state, State::Stunned(_)) {
+        Style::new().fg(Color::DarkGray)
+    } else {
+        Style::new().fg(Color::Green).add_modifier(Modifier::BOLD)
+    }
+}
+
+fn punch_name(a: Action) -> &'static str {
     match a {
         Action::Jab => "JAB",
         Action::Hook => "HOOK",
@@ -145,55 +453,112 @@ fn action_label(a: Action) -> &'static str {
     }
 }
 
-fn draw_arena(f: &mut Frame, area: Rect, m: &Match) {
-    let block = Block::bordered().title(" ring ");
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    let cols = Layout::horizontal([
-        Constraint::Percentage(35),
-        Constraint::Percentage(30),
-        Constraint::Percentage(35),
-    ])
-    .split(inner);
+fn draw_ring(f: &mut Frame, area: Rect, m: &Match, view: &View) {
+    let cx = area.x as i32 + area.width as i32 / 2;
+    let buf = f.buffer_mut();
 
-    let p_lines: Vec<Line> = sprite(&m.player, true).into_iter().map(Line::from).collect();
-    let mut p_text = Text::from(p_lines);
-    if m.player.hit_flash > 0 {
-        p_text = p_text.style(Style::new().fg(Color::Red).add_modifier(Modifier::BOLD));
+    // Canvas ropes.
+    let rope = Style::new().fg(Color::DarkGray);
+    let rope_line: String = "═".repeat(area.width as usize);
+    blit_str(buf, area, area.x as i32, area.y + 10, &rope_line, rope);
+    blit_str(buf, area, area.x as i32, area.y + 12, &rope_line, rope);
+
+    // Opponent: 27 wide, 11 tall, top of the ring.
+    let opp = opp_sprite(&m.opp);
+    blit(buf, area, cx - 14, area.y as i32, opp, opp_style(m));
+
+    // Tell fuse and hint under the opponent's feet.
+    if let Some((a, p)) = tell_progress(&m.opp) {
+        let width = 21usize;
+        let filled = (p * width as f32).round() as usize;
+        let fuse = format!("[{}{}]", "█".repeat(filled), "░".repeat(width - filled));
+        let color = if p < 0.5 { Color::Yellow } else { Color::Red };
+        blit_str(buf, area, cx - 11, area.y + 11, &fuse, Style::new().fg(color).bold());
+        if view.show_hints {
+            let hint = match a {
+                Action::Jab => "jab coming: block or dodge",
+                Action::Hook => "HOOK coming: dodge",
+                Action::Uppercut => "UPPERCUT coming: dodge, do not block",
+                Action::Special => "ENTERPRISE QUOTE: DODGE IT",
+            };
+            let x = cx - hint.chars().count() as i32 / 2;
+            blit_str(buf, area, x, area.y + 13, hint, Style::new().fg(color).bold());
+        }
+        let name = punch_name(a);
+        blit_str(buf, area, cx - 14 - name.len() as i32 - 2, area.y + 5, name, Style::new().fg(color).bold());
+        blit_str(buf, area, cx + 15, area.y + 5, name, Style::new().fg(color).bold());
     }
-    f.render_widget(Paragraph::new(p_text).alignment(Alignment::Center), vcenter(cols[0], 6));
 
-    let o_lines: Vec<Line> = sprite(&m.opp, false).into_iter().map(Line::from).collect();
-    let mut o_text = Text::from(o_lines);
-    if m.opp.hit_flash > 0 {
-        o_text = o_text.style(Style::new().fg(Color::Red).add_modifier(Modifier::BOLD));
-    }
-    f.render_widget(Paragraph::new(o_text).alignment(Alignment::Center), vcenter(cols[2], 6));
-
-    // Middle column: special telegraph (the rolling price counter) or hit text.
-    let mut mid: Vec<Line> = Vec::new();
-    if let Some(t) = m.special_telegraph {
-        let total = m.spec.special.startup as f32 * m.spec.speed;
-        let progress = 1.0 - (t as f32 / total).clamp(0.0, 1.0);
+    // Enterprise Quote price counter beside the briefcase.
+    if let State::Startup(Action::Special, left) = m.opp.state {
+        let total = m.opp.startup_ticks(Action::Special).max(1) as f32;
+        let progress = 1.0 - (left as f32 / total).clamp(0.0, 1.0);
         let price = (progress * 250_000.0) as u32;
-        mid.push(Line::from(m.spec.special_name).yellow().bold());
-        mid.push(Line::from(format!("${:>9}/yr", fmt_thousands(price))).yellow().bold());
-        mid.push(Line::from("DODGE IT").red().bold());
+        let s = format!("${}/yr", fmt_thousands(price));
+        blit_str(buf, area, cx + 16, area.y + 1, &s, Style::new().fg(Color::Yellow).bold());
     }
+
+    // Player: 13 wide, 5 tall, bottom of the ring, seen from behind.
+    let p = player_sprite(&m.player);
+    let dodge_dx = match m.player.state {
+        State::Dodging(Side::Left, _) => -5,
+        State::Dodging(Side::Right, _) => 5,
+        _ => 0,
+    };
+    blit(buf, area, cx - 6 + dodge_dx, area.y as i32 + 14, p, player_style(m));
+
+    // Hit text: damage numbers float beside whoever got hit.
     for ev in &m.events {
-        let who = if ev.by_player { "you" } else { m.opp.name };
-        let s = match ev.kind {
-            HitKind::Hit => format!("{who}: {} {:.0}", action_label(ev.action), ev.damage),
-            HitKind::Counter => format!("{who}: COUNTER {:.0}!", ev.damage),
-            HitKind::Chip => format!("{who}: blocked ({:.0})", ev.damage),
-            HitKind::GuardBreak => format!("{who}: GUARD BREAK {:.0}", ev.damage),
-            HitKind::Interrupt => format!("{who}: interrupt {:.0}", ev.damage),
-            HitKind::Dodged => format!("{who}: whiff"),
-            HitKind::Stagger => format!("{who}: STAGGER {:.0}", ev.damage),
+        let (txt, color) = match ev.kind {
+            HitKind::Hit => (format!("-{:.0}", ev.damage), Color::White),
+            HitKind::Counter => (format!("COUNTER -{:.0}!", ev.damage), Color::Magenta),
+            HitKind::Chip => (format!("blocked -{:.0}", ev.damage), Color::Cyan),
+            HitKind::GuardBreak => (format!("GUARD BREAK -{:.0}", ev.damage), Color::Red),
+            HitKind::Interrupt => (format!("interrupt -{:.0}", ev.damage), Color::Yellow),
+            HitKind::Dodged => ("whiff".to_string(), Color::Green),
+            HitKind::Stagger => (format!("STAGGER -{:.0}", ev.damage), Color::Red),
         };
-        mid.push(Line::from(s).bold());
+        let style = Style::new().fg(color).add_modifier(Modifier::BOLD);
+        if ev.by_player {
+            // Landed on the opponent: show by the opponent's head.
+            blit_str(buf, area, cx + 16, area.y + 3, &txt, style);
+        } else {
+            blit_str(buf, area, cx + 9, area.y + 15, &txt, style);
+        }
     }
-    f.render_widget(Paragraph::new(Text::from(mid)).alignment(Alignment::Center), vcenter(cols[1], 4));
+
+    // Side column: recent events for the debug view.
+    if view.show_debug {
+        for (i, s) in view.last_events.iter().rev().take(6).enumerate() {
+            blit_str(buf, area, area.x as i32 + 1, area.y + 1 + i as u16, s, Style::new().dim());
+        }
+    }
+
+    // Banner: round intro, taunts, KO. Centred over the ropes.
+    if let Some((s, _)) = &m.banner {
+        let (head, body, tail) = match m.phase {
+            Phase::Over { player_won } => (
+                Some(if player_won { "YOU WIN" } else { "YOU LOSE" }),
+                s.as_str(),
+                Some("[r] rematch   [q] quit"),
+            ),
+            _ => (None, s.as_str(), None),
+        };
+        let y0 = area.y + 10;
+        let style = Style::new().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD);
+        let w = body.chars().count().max(head.map_or(0, |h| h.len())).max(tail.map_or(0, |t| t.len())) + 4;
+        let x = cx - w as i32 / 2;
+        let pad = |t: &str| format!("{:^w$}", t, w = w);
+        let mut y = y0;
+        if let Some(h) = head {
+            blit_str(buf, area, x, y, &pad(h), style);
+            y += 1;
+        }
+        blit_str(buf, area, x, y, &pad(body), style);
+        if let Some(t) = tail {
+            blit_str(buf, area, x, y + 1, &pad(t), style.remove_modifier(Modifier::BOLD));
+        }
+    }
 }
 
 fn fmt_thousands(n: u32) -> String {
@@ -208,61 +573,26 @@ fn fmt_thousands(n: u32) -> String {
     out
 }
 
-fn vcenter(area: Rect, height: u16) -> Rect {
-    let h = height.min(area.height);
-    let y = area.y + (area.height.saturating_sub(h)) / 2;
-    Rect { x: area.x, y, width: area.width, height: h }
-}
-
-fn draw_banner(f: &mut Frame, area: Rect, m: &Match) {
-    let text = match (&m.phase, &m.banner) {
-        (Phase::Over { player_won }, Some((s, _))) => {
-            let head = if *player_won { "YOU WIN" } else { "YOU LOSE" };
-            Text::from(vec![Line::from(head).bold(), Line::from(s.as_str()), Line::from("[r] rematch  [q] quit").dim()])
-        }
-        (_, Some((s, _))) => Text::from(Line::from(s.as_str()).bold().yellow()),
-        _ => Text::default(),
-    };
-    f.render_widget(Paragraph::new(text).alignment(Alignment::Center), area);
-}
-
 fn draw_footer(f: &mut Frame, area: Rect, m: &Match, view: &View) {
-    let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(area);
-    let help = "[j] jab  [k] hook  [l] uppercut  [space] block  [a]/[d] dodge  [tab] debug  [q] quit";
-    f.render_widget(Paragraph::new(help).dim().alignment(Alignment::Center), rows[0]);
-    if view.show_debug {
-        let dbg = format!(
-            "t={} p={:?} o={:?} seed-run | {}",
-            m.tick,
-            m.player.state,
-            m.opp.state,
-            view.last_events.join(" | ")
-        );
-        f.render_widget(Paragraph::new(dbg).dim(), rows[1]);
-    }
+    let text = if view.show_debug {
+        format!("t={} p={:?} o={:?}", m.tick, m.player.state, m.opp.state)
+    } else {
+        "[j] jab  [k] hook  [l] uppercut  [space] block  [a]/[d] dodge  [h] hints  [tab] debug  [q] quit".to_string()
+    };
+    f.render_widget(Paragraph::new(text).dim().alignment(Alignment::Center), area);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim::{chainguard, Input};
+    use crate::sim::{chainguard, Input, INTRO_TICKS};
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
-    #[test]
-    fn renders_a_frame_at_80x24() {
-        let mut m = Match::new(chainguard(), 3);
-        for _ in 0..(crate::sim::INTRO_TICKS + 5) {
-            m.step();
-        }
-        m.player_input(Input::Jab);
-        m.step();
-        m.step();
-        m.opp.state = State::Startup(Action::Special, 20);
-        m.special_telegraph = Some(20);
-        let view = View { show_debug: true, last_events: vec!["x".into()] };
+    fn render(m: &Match) -> String {
+        let view = View { show_debug: false, show_hints: true, last_events: vec![] };
         let mut t = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        t.draw(|f| draw(f, &m, &view)).unwrap();
+        t.draw(|f| draw(f, m, &view)).unwrap();
         let buf = t.backend().buffer().clone();
         let mut out = String::new();
         for y in 0..buf.area.height {
@@ -271,8 +601,48 @@ mod tests {
             }
             out.push('\n');
         }
+        out
+    }
+
+    fn fighting() -> Match {
+        let mut m = Match::new(chainguard(), 3);
+        for _ in 0..(INTRO_TICKS + 40) {
+            m.step();
+        }
+        m.banner = None;
+        m
+    }
+
+    #[test]
+    fn renders_hook_tell_at_80x24() {
+        let mut m = fighting();
+        m.opp.state = State::Startup(Action::Hook, 6);
+        m.player_input(Input::Block);
+        let out = render(&m);
         println!("{out}");
         assert!(out.contains("Minimal"));
-        assert!(out.contains("Chainguard"));
+        assert!(out.contains("HOOK coming"));
+    }
+
+    #[test]
+    fn renders_special_and_player_jab() {
+        let mut m = fighting();
+        m.opp.state = State::Startup(Action::Special, 30);
+        m.player_input(Input::Jab);
+        let out = render(&m);
+        println!("{out}");
+        assert!(out.contains("QUOTE"));
+        assert!(out.contains("$"));
+    }
+
+    #[test]
+    fn renders_ko_banner() {
+        let mut m = fighting();
+        m.opp.health = 1.0;
+        m.player.state = State::Startup(Action::Hook, 1);
+        m.step();
+        let out = render(&m);
+        println!("{out}");
+        assert!(out.contains("YOU WIN"));
     }
 }

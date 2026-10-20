@@ -1,12 +1,12 @@
 # punchout
 
-Feel prototype for the Minimal Punch-Out terminal fighter. You are Minimal.
-The only opponent so far is Chainguard, "The Zero Day": a heavyweight who
-blocks nearly everything and, every fifteen seconds, winds up an Enterprise
-Quote. Dodge it.
+Feel prototype for the Minimal Punch-Out terminal fighter. You are Minimal,
+seen from behind at the bottom of the ring. The only opponent so far is
+Chainguard, "The Zero Day": a heavyweight who blocks nearly everything and,
+every fifteen seconds, winds up an Enterprise Quote. Dodge it.
 
-No art beyond boxes yet. The point of this build is to answer one question:
-do the stamina numbers make patience win and mashing lose?
+The point of this build is to answer one question: do the stamina numbers
+make patience win and mashing lose?
 
 ## Run
 
@@ -16,7 +16,7 @@ cargo run --release -- --seed 7      # replayable opponent behaviour
 cargo run --release -- --quiet       # no terminal bell
 ```
 
-Needs a terminal at least 80x24.
+Needs a terminal at least 80x24. Colour matters: the tells are colour-coded.
 
 | Key | Action |
 |---|---|
@@ -25,9 +25,20 @@ Needs a terminal at least 80x24.
 | `l` | uppercut (slow, long tell, breaks a block) |
 | `space` | block (tap, short window, chip damage from jabs and hooks) |
 | `a` / `d` | dodge (tap, shorter window, opens a double-damage counter) |
-| `tab` | debug line |
+| `h` | toggle the trainer hints under the ropes |
+| `tab` | debug line and event log |
 | `r` | rematch after the fight |
 | `q` | quit |
+
+## Reading the opponent
+
+Every punch has a wind-up pose. During the first half of the wind-up the
+opponent turns yellow and a fuse bar fills under his feet. During the second
+half he flashes red: the punch lands when the fuse is full. Hooks pull the
+glove far out to one side, uppercuts crouch with both gloves low, jabs cock
+one glove above the shoulder, and the Enterprise Quote holds up a briefcase
+while the price ticks up. With hints on, a line under the ropes names the
+punch and the right answer.
 
 ## Rules in one breath
 
@@ -39,7 +50,8 @@ followed by a punch inside the counter window does double damage.
 ## Tests
 
 ```sh
-cargo test                                # rules + a headless 80x24 render
+cargo test                                # rules + headless 80x24 renders
+cargo test renders -- --nocapture         # print the frames
 cargo test balance -- --nocapture         # masher vs patient, ten seeds each
 cargo test histogram -- --nocapture       # event counts for a masher fight
 ```
@@ -50,7 +62,7 @@ rerun, read the table.
 ## Layout
 
 - `src/sim.rs`: the whole game, no terminal dependency, 30 ticks per second
-- `src/render.rs`: sim state to ratatui widgets
+- `src/render.rs`: sprites and the Punch-Out layout, sim state to the screen
 - `src/main.rs`: input, tick loop, bell
 
 ## Building in a Minimal sandbox
