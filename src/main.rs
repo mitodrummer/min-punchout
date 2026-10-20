@@ -13,6 +13,7 @@ use sim::{Input, Match, Phase, Side, TICK_HZ};
 struct Opts {
     seed: u64,
     bell: bool,
+    rank: Option<u8>,
 }
 
 fn parse_opts() -> Opts {
@@ -22,6 +23,7 @@ fn parse_opts() -> Opts {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(1),
         bell: true,
+        rank: None,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -32,8 +34,13 @@ fn parse_opts() -> Opts {
                 }
             }
             "--quiet" | "-q" => opts.bell = false,
+            "--rank" => {
+                if let Some(v) = args.next().and_then(|s| s.parse().ok()) {
+                    opts.rank = Some(v);
+                }
+            }
             "-h" | "--help" => {
-                println!("punchout [--seed N] [--quiet]");
+                println!("punchout [--seed N] [--quiet] [--rank 1-8]");
                 std::process::exit(0);
             }
             _ => {}
@@ -60,7 +67,11 @@ fn main() -> std::io::Result<()> {
 
 fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<()> {
     let tick = Duration::from_micros(1_000_000 / TICK_HZ as u64);
-    let mut m = Match::new(sim::chainguard(), opts.seed);
+    let spec = || match opts.rank {
+        Some(r) => sim::chainguard().at_rank(r),
+        None => sim::chainguard(),
+    };
+    let mut m = Match::new(spec(), opts.seed);
     let mut view = render::View { show_debug: false, show_hints: true, last_events: Vec::new() };
     let mut next = Instant::now() + tick;
 
@@ -83,7 +94,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
                         KeyCode::Char('h') => view.show_hints = !view.show_hints,
                         KeyCode::Char('r') => {
                             if matches!(m.phase, Phase::Over { .. }) {
-                                m = Match::new(sim::chainguard(), opts.seed.wrapping_add(m.tick));
+                                m = Match::new(spec(), opts.seed.wrapping_add(m.tick));
                             }
                         }
                         KeyCode::Char('j') => {

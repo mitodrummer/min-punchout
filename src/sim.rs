@@ -10,7 +10,8 @@ pub const MAX_STAMINA: f32 = 100.0;
 pub const STAMINA_REGEN_PER_SEC: f32 = 22.0;
 /// Below this you cannot block or dodge and any hit staggers you.
 pub const EXHAUSTED_BELOW: f32 = 6.0;
-pub const COUNTER_WINDOW: u32 = 12;
+/// Ticks after a successful dodge in which a punch does double damage.
+pub const COUNTER_WINDOW: u32 = 20;
 pub const CHIP_FRACTION: f32 = 0.15;
 /// Ticks you must stay idle before stamina starts coming back. The anti-mash rule.
 pub const REGEN_DELAY: u32 = 10;
@@ -46,9 +47,10 @@ pub const JAB: Move = Move { stamina: 8.0, damage: 6.0, startup: 3, recovery: 6 
 pub const HOOK: Move = Move { stamina: 14.0, damage: 12.0, startup: 8, recovery: 10 };
 pub const UPPERCUT: Move = Move { stamina: 25.0, damage: 22.0, startup: 15, recovery: 18 };
 pub const BLOCK_COST: f32 = 6.0;
-pub const BLOCK_WINDOW: u32 = 12;
+pub const BLOCK_WINDOW: u32 = 15;
 pub const DODGE_COST: f32 = 10.0;
-pub const DODGE_WINDOW: u32 = 8;
+/// 400 ms. Human reaction plus terminal latency needs this much.
+pub const DODGE_WINDOW: u32 = 12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
@@ -96,6 +98,8 @@ pub struct Fighter {
     /// Ticks since last hit landed on this fighter, for render flashes.
     pub hit_flash: u32,
     pub special: Option<Move>,
+    /// Damage multiplier.
+    pub power: f32,
 }
 
 impl Fighter {
@@ -114,6 +118,7 @@ impl Fighter {
             winded: false,
             hit_flash: 0,
             special: None,
+            power: 1.0,
         }
     }
 
@@ -273,7 +278,7 @@ pub struct HitEvent {
 
 /// Resolve `action` from `att` landing on `def`.
 fn resolve(att: &mut Fighter, def: &mut Fighter, action: Action, by_player: bool) -> HitEvent {
-    let base = att.mv(action).damage;
+    let base = att.mv(action).damage * att.power;
     let mut ev = HitEvent { by_player, action, kind: HitKind::Hit, damage: 0.0 };
     match def.state {
         State::Dodging(..) => {
@@ -372,6 +377,31 @@ pub struct OpponentSpec {
     pub taunts: [&'static str; 3],
     pub ko_line: &'static str,
     pub lose_line: &'static str,
+    /// Ladder position, 1 easiest to 8 boss. The spec's numbers are tuned
+    /// for this rank.
+    pub rank: u8,
+    /// Damage multiplier for this opponent.
+    pub power: f32,
+}
+
+impl OpponentSpec {
+    /// Re-tune this opponent as if it sat at a different ladder rank. Each
+    /// step down lengthens heavy tells, slows reactions, softens punches and
+    /// lowers the block rate; each step up does the reverse. A dev dial for
+    /// finding the right feel, not a shipped difficulty setting.
+    pub fn at_rank(mut self, rank: u8) -> Self {
+        let rank = rank.clamp(1, 8);
+        let steps = self.rank as i32 - rank as i32; // positive = easier
+        let f = steps as f32;
+        self.tell_bonus = (self.tell_bonus as i32 + 3 * steps).max(0) as u32;
+        self.reaction_delay = (self.reaction_delay as i32 + (steps + 1).div_euclid(2)).max(1) as u32;
+        self.block_chance = (self.block_chance * 0.92f32.powf(f)).clamp(0.05, 0.98);
+        self.power = (self.power * 0.9f32.powf(f)).max(0.3);
+        self.speed = (self.speed + 0.08 * f).max(0.6);
+        self.special_every = ((self.special_every as f32) * 1.15f32.powf(f)) as u32;
+        self.rank = rank;
+        self
+    }
 }
 
 pub fn chainguard() -> OpponentSpec {
@@ -402,6 +432,8 @@ pub fn chainguard() -> OpponentSpec {
         ],
         ko_line: "Would you like to schedule a call to discuss your defeat?",
         lose_line: "We'll follow up with a revised quote.",
+        rank: 7,
+        power: 1.0,
     }
 }
 
@@ -451,6 +483,7 @@ impl Match {
         opp.speed = spec.speed;
         opp.tell_bonus = spec.tell_bonus;
         opp.special = Some(spec.special);
+        opp.power = spec.power;
         Match {
             player: Fighter::new("Minimal"),
             opp,
@@ -884,5 +917,85 @@ mod histogram {
         }
         println!("opp state ticks: {opp_states:?}");
         println!("opp state when a player jab landed clean: {landed_on:?}");
+    }
+}
+
+#[cfg(test)]
+mod ranks {
+    //! A sloppy human against the opponent at every ladder rank.
+    //! Run with `cargo test ranks -- --nocapture`.
+    use super::*;
+
+    struct Human {
+        reaction: u32,
+        scheduled: Option<(Input, u32)>,
+        reacted_to: Option<u64>,
+        rng: Rng,
+    }
+
+    impl Human {
+        fn act(&mut self, m: &Match) -> Option<Input> {
+            if let Some((i, t)) = self.scheduled {
+                if t <= 1 {
+                    self.scheduled = None;
+                    return Some(i);
+                }
+                self.scheduled = Some((i, t - 1));
+                return None;
+            }
+            if !m.player.can_act() {
+                return None;
+            }
+            if let State::Startup(a, left) = m.opp.state {
+                let key = m.tick - left as u64;
+                if self.reacted_to != Some(key) && a != Action::Jab {
+                    self.reacted_to = Some(key);
+                    if self.rng.chance(0.85) {
+                        let input = if self.rng.chance(0.75) { Input::Dodge(Side::Left) } else { Input::Block };
+                        self.scheduled = Some((input, self.reaction));
+                    }
+                    return None;
+                }
+            }
+            if m.player.counter_window > 0 {
+                return Some(Input::Hook);
+            }
+            match m.opp.state {
+                State::Stunned(_) if m.player.stamina > 30.0 => Some(Input::Hook),
+                State::Blocking(_) if m.player.stamina > 50.0 && self.rng.chance(0.3) => Some(Input::Uppercut),
+                State::Idle | State::Recovery(..) if m.player.stamina > 45.0 && m.tick % 10 == 0 => Some(Input::Jab),
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn report() {
+        println!("sloppy human (270 ms reaction, 15% misses) vs Chainguard retuned per rank");
+        for rank in 1..=8u8 {
+            let mut wins = 0;
+            let mut hp_sum = 0.0;
+            let mut rounds = 0u32;
+            for seed in 1..=20u64 {
+                let mut h = Human { reaction: 8, scheduled: None, reacted_to: None, rng: Rng::new(seed * 7) };
+                let mut m = Match::new(chainguard().at_rank(rank), seed);
+                while !matches!(m.phase, Phase::Over { .. }) {
+                    if let Some(i) = h.act(&m) {
+                        m.player_input(i);
+                    }
+                    m.step();
+                }
+                if matches!(m.phase, Phase::Over { player_won: true }) {
+                    wins += 1;
+                    hp_sum += m.player.health;
+                }
+                rounds += m.round as u32;
+            }
+            println!(
+                "  rank {rank}: {wins:>2}/20 wins, avg hp when winning {:>5.1}, avg rounds {:.1}",
+                if wins > 0 { hp_sum / wins as f32 } else { 0.0 },
+                rounds as f32 / 20.0
+            );
+        }
     }
 }

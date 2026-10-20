@@ -14,6 +14,7 @@ make patience win and mashing lose?
 cargo run --release
 cargo run --release -- --seed 7      # replayable opponent behaviour
 cargo run --release -- --quiet       # no terminal bell
+cargo run --release -- --rank 3      # dev dial: re-tune the opponent to ladder rank 1 (easy) to 8 (boss)
 ```
 
 Needs a terminal of at least 100x40 with true colour (any modern terminal). The ring
@@ -56,6 +57,7 @@ cargo test renders -- --nocapture         # print half-block frames as text
 PUNCHOUT_FRAMES=/tmp/frames cargo test dump_frames   # write one PNG per pose
 cargo test balance -- --nocapture         # masher vs patient, ten seeds each
 cargo test histogram -- --nocapture       # event counts for a masher fight
+cargo test ranks -- --nocapture           # a sloppy human vs the opponent at every rank
 ```
 
 The balance probes are the tuning loop. Change a number in `src/sim.rs`,
