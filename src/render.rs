@@ -68,6 +68,14 @@ fn health_color(ratio: f64) -> Color {
 }
 
 fn fighter_bars(f: &mut Frame, area: Rect, fi: &Fighter, right: bool) {
+    // Minimal's bars carry the mark on their left, 12x6 pixels in 12x3 cells.
+    let area = if right || area.width < 30 {
+        area
+    } else {
+        let mark = art::mark_canvas(12, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5));
+        mark.flush(f.buffer_mut(), Rect { x: area.x, y: area.y, width: 12, height: 3.min(area.height) }, 1);
+        Rect { x: area.x + 14, y: area.y, width: area.width - 14, height: area.height }
+    };
     let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
         .split(area);
     let mut spans = vec![Span::styled(fi.name.to_uppercase(), Style::new().bold())];
@@ -500,7 +508,13 @@ fn celebrate(c: &mut Canvas, won: bool, el: u64, w: i32, h: i32, proved: &str) {
     } else {
         Rgb::hex(0x9a9aa8)
     };
-    c.rect(x - 4, y - 3, tw + 8, 5 * scale + 6, shadow);
+    // The mark sits left of the word on a win.
+    let mw = if won { 14 } else { 0 };
+    let x = x + mw / 2;
+    c.rect(x - 4 - mw, y - 3, tw + 8 + mw, 5 * scale + 6, shadow);
+    if won {
+        art::draw_mark(c, x - 2 - mw, y + 1, 12, Rgb::hex(0xe5e5e5));
+    }
     c.text(x + 1, y + 1, word, scale, Rgb::hex(0x3a3550));
     c.text(x, y, word, scale, col);
     if won && el >= 50 {
@@ -681,6 +695,8 @@ mod frames {
             m.step();
         }
         png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/intro.png"), 6);
+        png::write(&art::mark_canvas(48, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5)), &format!("{dir}/mark48.png"), 6);
+        png::write(&art::mark_canvas(12, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5)), &format!("{dir}/mark12.png"), 24);
         let mut m = fighting();
         m.banner = Some(("NOTICE POSTED: HIT HIM".into(), 30));
         png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/notice.png"), 6);

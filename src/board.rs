@@ -77,8 +77,8 @@ impl Board {
 pub fn draw(f: &mut Frame, b: &Board, specs: &[OpponentSpec]) {
     let area = f.area();
     let rows = Layout::vertical([
-        Constraint::Length(1), // title
-        Constraint::Min(36),   // tiles
+        Constraint::Length(3), // title, three rows so the mark fits beside it
+        Constraint::Min(34),   // tiles
         Constraint::Length(1), // status
         Constraint::Length(1), // hints
     ])
@@ -96,7 +96,14 @@ pub fn draw(f: &mut Frame, b: &Board, specs: &[OpponentSpec]) {
         spans.push(Span::styled(proved.join(" / "), Style::new().fg(Color::Rgb(61, 220, 151)).add_modifier(Modifier::BOLD)));
     }
     let title = Line::from(spans);
-    f.render_widget(Paragraph::new(title).alignment(Alignment::Center), rows[0]);
+    // Mark on the left, title text on the middle row, the pair centred.
+    let tw = title.width() as u16;
+    let total = tw + 14;
+    let x0 = rows[0].x + rows[0].width.saturating_sub(total) / 2;
+    let mark = art::mark_canvas(12, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5));
+    mark.flush(f.buffer_mut(), Rect { x: x0, y: rows[0].y, width: 12, height: 3 }, 1);
+    let text_area = Rect { x: x0 + 14, y: rows[0].y + 1, width: tw.min(rows[0].width.saturating_sub(14)), height: 1 };
+    f.render_widget(Paragraph::new(title), text_area);
 
     let tiles = rows[1];
     let scale = ((tiles.width as i32 / BOARD_W).min(tiles.height as i32 * 2 / BOARD_H)).max(1);
