@@ -458,6 +458,8 @@ pub struct OpponentSpec {
     pub self_hit_every: u32,
     pub self_hit_damage: f32,
     pub self_hit_lines: &'static [&'static str],
+    /// Lines for when he stalls instead of swinging; empty means he never stalls.
+    pub stall_lines: &'static [&'static str],
     pub taunts: [&'static str; 3],
     pub ko_line: &'static str,
     pub lose_line: &'static str,
@@ -541,6 +543,8 @@ pub struct Match {
     pub over_at: u64,
     /// Ticks left of the glove-in-own-face pose.
     pub self_hit: u32,
+    /// Ticks left of a self-inflicted stall, for the label.
+    pub stall: u32,
     /// A successful block or dodge by the player, and ticks left to shout it.
     pub defended: Option<(HitKind, u32)>,
     /// A held press: (input, ticks before it is forgotten).
@@ -585,6 +589,7 @@ impl Match {
             notice: None,
             over_at: 0,
             self_hit: 0,
+            stall: 0,
             defended: None,
             buffered: None,
             fought: 0,
@@ -696,6 +701,7 @@ impl Match {
         self.frozen = self.frozen.saturating_sub(1);
         self.rebrand = self.rebrand.saturating_sub(1);
         self.self_hit = self.self_hit.saturating_sub(1);
+        self.stall = self.stall.saturating_sub(1);
         if let Some((_, t)) = &mut self.defended {
             *t = t.saturating_sub(1);
             if *t == 0 {
@@ -928,6 +934,16 @@ impl Match {
     /// The opponent winds up and hits himself. Damage, a long stun, a line
     /// from his own error log.
     fn self_punch(&mut self) {
+        // Sometimes the failure is a stall rather than a swing: he stands
+        // there building for 2.5 s while you hit him.
+        if !self.spec.stall_lines.is_empty() && self.rng.chance(0.4) {
+            self.opp.state = State::Stunned(75);
+            self.stall = 75;
+            self.brain.since_self_hit = 0;
+            let line = *self.rng.pick(self.spec.stall_lines);
+            self.say(line, 75);
+            return;
+        }
         let dmg = self.spec.self_hit_damage;
         self.opp.health -= dmg;
         self.opp.state = State::Stunned(45);
@@ -980,7 +996,7 @@ impl Match {
                 self.alias += 1;
                 self.rebrand = ticks;
                 self.opp.state = State::Dodging(Side::Right, ticks);
-                self.say(format!("NOW KNOWN AS {}", self.opp_name().to_uppercase()), ticks);
+                self.say(format!("REBRAND! {} IS NOW {}", self.spec.name.to_uppercase(), self.opp_name().to_uppercase()), ticks);
             }
         }
     }

@@ -276,20 +276,35 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
         pose
     };
     c.set_tint(if over.is_some() { None } else { tint });
-    // A floored opponent slides to the side so the winner does not hide him.
-    let ox = if matches!(over, Some((true, _))) { ox - 28 } else { ox };
-    art::draw_opponent(&mut c, ox, oy, &look, &pose, m.tick);
-    c.set_tint(None);
     if let Some((true, el)) = over {
-        // Stars circling the fallen head.
-        let (hx, hy) = (ox + pose.head_dx + 22, oy + pose.head_dy + 2);
+        // Knocked out: drawn upright off screen, then laid on the floor on
+        // his side, head to the left, arms out. Stars circle the head.
+        let key = Rgb(1, 2, 3);
+        let mut rig = Canvas::new(44, 56, key);
+        let flat = art::Pose {
+            body_dx: 0,
+            body_dy: 0,
+            head_dx: 0,
+            head_dy: 0,
+            face: art::Face::Dizzy,
+            left: art::Glove(-6, 28, 1.0),
+            right: art::Glove(50, 28, 1.0),
+            prop: None,
+        };
+        art::draw_opponent(&mut rig, 0, 0, &look, &flat, m.tick);
+        let (dx, dy) = (0, 24);
+        c.blit_rot_ccw(&rig, dx, dy, key);
+        let (hx, hy) = (dx + 8, dy + 21);
         for k in 0..4 {
             let a = el as f32 / 5.0 + k as f32 * std::f32::consts::FRAC_PI_2;
-            let sx = hx + (a.cos() * 12.0) as i32;
-            let sy = hy + (a.sin() * 3.0) as i32;
+            let sx = hx + (a.cos() * 4.0) as i32;
+            let sy = hy + (a.sin() * 12.0) as i32;
             c.rect(sx, sy, 2, 2, if k % 2 == 0 { YELLOW } else { WHITE });
         }
+    } else {
+        art::draw_opponent(&mut c, ox, oy, &look, &pose, m.tick);
     }
+    c.set_tint(None);
 
     // Signature-move status labels, top right of the ring.
     let mut status: Vec<(String, Rgb)> = Vec::new();
@@ -299,6 +314,9 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
     if m.frozen > 0 {
         let label = if m.fought <= m.spec.prebuild + 1 { "PREBUILDING" } else { m.spec.special_name };
         status.push((format!("{}: {}S", label, (m.frozen + TICK_HZ - 1) / TICK_HZ), YELLOW));
+    }
+    if m.stall > 0 {
+        status.push((format!("{} IS BUILDING: FREE HITS {}S", m.spec.name.to_uppercase(), (m.stall + TICK_HZ - 1) / TICK_HZ), YELLOW));
     }
     if let Some(t) = m.notice {
         status.push((format!("NOTICE: HIT HIM IN {:.1}S", t as f32 / TICK_HZ as f32), YELLOW));
@@ -450,7 +468,10 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
     if let Some((won, el)) = over {
         celebrate(&mut c, won, el, w, h, m.spec.special_line);
     }
-    if let Some((s, _)) = &m.banner {
+    // After a KO the quote stays big for three seconds, then drops to the
+    // footer so the tableau is visible.
+    let quote_moved = matches!(over, Some((_, el)) if el >= 90);
+    if let (Some((s, _)), false) = (&m.banner, quote_moved) {
         banner_box(&mut c, s, &m.phase, w, h);
     }
     c
@@ -611,14 +632,21 @@ fn draw_footer(f: &mut Frame, area: Rect, m: &Match, view: &View) {
         }
         _ => None,
     };
+    // After the KO the quote lives here once the big box has gone.
+    let quote = match (&m.phase, &m.banner) {
+        (Phase::Over { .. }, Some((s, _))) if m.tick.saturating_sub(m.over_at) >= 90 => Some(s.as_str()),
+        _ => None,
+    };
     let text = if view.show_debug {
         format!("t={} p={:?} o={:?}", m.tick, m.player.state, m.opp.state)
+    } else if let Some(q) = quote {
+        q.to_string()
     } else if let Some(h) = hint {
         h.to_string()
     } else {
         "[j] jab  [k] hook  [l] uppercut  [space] block  [a]/[d] dodge  [h] hints  [tab] debug  [q] quit".to_string()
     };
-    let style = if hint.is_some() && !view.show_debug {
+    let style = if (hint.is_some() || quote.is_some()) && !view.show_debug {
         Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)
     } else {
         Style::new().dim()
@@ -759,6 +787,10 @@ mod frames {
                 m.step();
             }
             png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/{name}.png"), 6);
+            for _ in 0..60 {
+                m.step();
+            }
+            png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/{name}_late.png"), 6);
         }
         let _unused: Vec<(&str, State, Option<Input>)> = vec![
         ];

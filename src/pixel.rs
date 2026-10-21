@@ -360,3 +360,20 @@ impl Canvas {
         (s.chars().count() as i32 * 6 - 1) * scale
     }
 }
+
+impl Canvas {
+    /// Copy `src` rotated a quarter turn anticlockwise so its top edge faces
+    /// left, with its top-left landing at (dx, dy). Pixels equal to `skip`
+    /// are treated as transparent.
+    pub fn blit_rot_ccw(&mut self, src: &Canvas, dx: i32, dy: i32, skip: Rgb) {
+        for y in 0..src.h {
+            for x in 0..src.w {
+                if let Some(c) = src.get(x, y) {
+                    if c != skip {
+                        self.put(dx + y, dy + (src.w - 1 - x), c);
+                    }
+                }
+            }
+        }
+    }
+}

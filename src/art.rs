@@ -374,8 +374,9 @@ pub fn draw_opponent(c: &mut Canvas, ox: i32, oy: i32, look: &Look, pose: &Pose,
     face(c, hx, hy, pose.face, o, p.band, tick);
     if look.hair == Hair::Wizard {
         // Beard over the mouth, drawn after the face.
-        c.ellipse(hx, hy + r as i32 + 1, r - 1.5, 4.0, p.hair);
-        c.ellipse(hx, hy + r as i32 + 4, r - 3.0, 4.0, p.hair);
+        c.ellipse_o(hx, hy + r as i32 + 1, r - 1.5, 4.0, p.hair, o);
+        c.ellipse_o(hx, hy + r as i32 + 4, r - 3.0, 4.0, p.hair, o);
+        c.ellipse(hx, hy + r as i32 + 2, r - 2.5, 3.0, p.hair);
     }
 
     // Prop, behind the glove that holds it.
