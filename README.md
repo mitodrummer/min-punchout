@@ -1,6 +1,6 @@
-# minimal punchout
+# min box
 
-Feel prototype for the Minimal Punch-Out terminal fighter. You are Minimal,
+Min Box: the Minimal terminal boxing game, Punch-Out style. You are Minimal,
 seen from behind at the bottom of the ring. Each opponent on the card fails one
 of the four things Minimal is for: isolation, reproducibility, supply chain,
 hermetic builds. Beat them and the card keeps score of what you proved. The
@@ -81,7 +81,7 @@ followed by a punch inside the counter window does double damage.
 ```sh
 cargo test                                # rules + headless renders
 cargo test renders -- --nocapture         # print half-block frames as text
-PUNCHOUT_FRAMES=/tmp/frames cargo test dump_frames   # one PNG per pose and per opponent
+MINBOX_FRAMES=/tmp/frames cargo test dump_frames   # one PNG per pose and per opponent
 cargo test balance -- --nocapture         # masher vs patient, ten seeds each
 cargo test histogram -- --nocapture       # event counts for a masher fight
 cargo test ranks -- --nocapture           # a sloppy human vs Chainguard at every rank

@@ -90,7 +90,7 @@ pub fn draw(f: &mut Frame, b: &Board, specs: &[OpponentSpec]) {
     let mut spans = vec![
         Span::styled(LOGO, Style::new().fg(Color::White).add_modifier(Modifier::BOLD)),
         Span::raw("   "),
-        Span::styled("MINIMAL PUNCHOUT", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("MIN BOX", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::raw("   "),
         Span::styled("THE CARD", Style::new().fg(Color::White)),
     ];
@@ -151,7 +151,7 @@ pub fn draw(f: &mut Frame, b: &Board, specs: &[OpponentSpec]) {
     f.render_widget(Paragraph::new(hints).dim().alignment(Alignment::Center), rows[3]);
 }
 
-/// The title screen: wordmark, MINIMAL PUNCHOUT in big pixel letters, Minimal
+/// The title screen: wordmark, MIN BOX in big pixel letters, Minimal
 /// alone in the ring, and a flashing prompt.
 pub fn draw_title(f: &mut Frame, tick: u64) {
     let area = f.area();
@@ -190,20 +190,20 @@ pub fn paint_title(w: i32, h: i32, tick: u64) -> Canvas {
     }
     // The title, two lines of pixel letters with a drop shadow.
     let shadow = Rgb::hex(0x14141c);
-    let s = 2;
-    let w1 = Canvas::big_text_width("MINIMAL", s);
-    let w2 = Canvas::big_text_width("PUNCHOUT", s);
+    let s = 3;
+    let w1 = Canvas::big_text_width("MIN", s);
+    let w2 = Canvas::big_text_width("BOX", s);
     let x1 = cx - w1 / 2;
     let x2 = cx - w2 / 2;
-    let y1 = 4;
-    let y2 = y1 + 7 * s + 4;
+    let y1 = 2;
+    let y2 = y1 + 7 * s + 3;
     let bw = w2.max(w1) + 10;
     c.rect(cx - bw / 2, y1 - 3, bw, (y2 + 7 * s + 3) - (y1 - 3), shadow);
     let col = [YELLOW, WHITE, Rgb::hex(0x3ddc97), Rgb::hex(0xff5ad1)][((tick / 8) % 4) as usize];
-    c.big_text(x1 + 2, y1 + 2, "MINIMAL", s, Rgb::hex(0x3a3550));
-    c.big_text(x1, y1, "MINIMAL", s, col);
-    c.big_text(x2 + 2, y2 + 2, "PUNCHOUT", s, Rgb::hex(0x3a3550));
-    c.big_text(x2, y2, "PUNCHOUT", s, WHITE);
+    c.big_text(x1 + 3, y1 + 3, "MIN", s, Rgb::hex(0x3a3550));
+    c.big_text(x1, y1, "MIN", s, col);
+    c.big_text(x2 + 3, y2 + 3, "BOX", s, Rgb::hex(0x3a3550));
+    c.big_text(x2, y2, "BOX", s, WHITE);
     // Minimal in the ring, from behind, shadow-boxing.
     let bob = ((tick / 6) % 2) as i32;
     let jab = (tick / 20) % 2 == 0;
@@ -217,7 +217,7 @@ pub fn paint_title(w: i32, h: i32, tick: u64) -> Canvas {
         right: if jab { art::Glove(21, 9 + bob, 1.0) } else { art::Glove(22, 4, 0.9) },
         prop: None,
     };
-    art::draw_player(&mut c, cx - 12, h - 30, &art::MINIMAL, &pose);
+    art::draw_player(&mut c, cx - 12, h - 26, &art::MINIMAL, &pose);
     let sub = "8 FIGHTS. 1 SANDBOX.";
     let sw = Canvas::text_width(sub, 1);
     c.rect(cx - sw / 2 - 3, h - 12, sw + 6, 9, shadow);
@@ -350,7 +350,7 @@ mod tests {
 
     #[test]
     fn dump_board_frames() {
-        let Ok(dir) = std::env::var("PUNCHOUT_FRAMES") else { return };
+        let Ok(dir) = std::env::var("MINBOX_FRAMES") else { return };
         let specs = crate::roster::all();
         let mut b = Board::new(8);
         crate::pixel::png::write(&paint(&b, &specs, BOARD_W, BOARD_H).0, &format!("{dir}/board_start.png"), 6);
@@ -382,7 +382,7 @@ mod title_tests {
         }
         assert!(out.contains("M I N I M A L"));
         assert!(out.contains("PRESS ENTER"));
-        if let Ok(dir) = std::env::var("PUNCHOUT_FRAMES") {
+        if let Ok(dir) = std::env::var("MINBOX_FRAMES") {
             crate::pixel::png::write(&paint_title(BOARD_W, 76, 3), &format!("{dir}/title.png"), 6);
         }
     }

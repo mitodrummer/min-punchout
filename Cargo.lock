@@ -875,6 +875,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "minbox"
+version = "0.1.0"
+dependencies = [
+ "ratatui",
+ "rodio",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1252,14 +1260,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "200b9ff220857e53e184257720a14553b2f4aa02577d2ed9842d45d4b9654810"
 dependencies = [
  "cc",
-]
-
-[[package]]
-name = "punchout"
-version = "0.1.0"
-dependencies = [
- "ratatui",
- "rodio",
 ]
 
 [[package]]

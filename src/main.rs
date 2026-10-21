@@ -66,9 +66,9 @@ fn parse_opts() -> Opts {
             }
             "--no-music" => opts.no_music = true,
             "--unlock" => opts.unlock = true,
-            "--log" => opts.log = Some(args.next().unwrap_or_else(|| "punchout.log".into())),
+            "--log" => opts.log = Some(args.next().unwrap_or_else(|| "minbox.log".into())),
             "-h" | "--help" => {
-                println!("punchout [--opponent NAME] [--rank 1-8] [--seed N] [--unlock] [--quiet] [--no-music] [--log FILE]");
+                println!("minbox [--opponent NAME] [--rank 1-8] [--seed N] [--unlock] [--quiet] [--no-music] [--log FILE]");
                 std::process::exit(0);
             }
             _ => {}

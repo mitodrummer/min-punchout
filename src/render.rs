@@ -34,7 +34,7 @@ pub fn draw(f: &mut Frame, m: &Match, view: &View) {
     let area = f.area();
     if area.width < MIN_COLS || area.height < MIN_ROWS {
         let msg = Text::from(vec![
-            Line::from("MINIMAL PUNCH-OUT").bold(),
+            Line::from("MIN BOX").bold(),
             Line::from(""),
             Line::from(format!("Terminal is {}x{}. Please enlarge it to at least {}x{}.", area.width, area.height, MIN_COLS, MIN_ROWS)),
             Line::from("[q] quit").dim(),
@@ -726,7 +726,7 @@ mod tests {
 
 #[cfg(test)]
 mod frames {
-    //! Dump ring frames as PNGs. Set PUNCHOUT_FRAMES=/some/dir to write them.
+    //! Dump ring frames as PNGs. Set MINBOX_FRAMES=/some/dir to write them.
     use super::*;
     use crate::pixel::png;
     use crate::sim::{chainguard, Input, INTRO_TICKS};
@@ -742,7 +742,7 @@ mod frames {
 
     #[test]
     fn dump_frames() {
-        let Ok(dir) = std::env::var("PUNCHOUT_FRAMES") else { return };
+        let Ok(dir) = std::env::var("MINBOX_FRAMES") else { return };
         let poses: Vec<(&str, State, Option<Input>)> = vec![
             ("idle", State::Idle, None),
         ];
