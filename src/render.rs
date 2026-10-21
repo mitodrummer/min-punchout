@@ -417,7 +417,45 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
     if let Some((won, el)) = over {
         celebrate(&mut c, won, el, w, h);
     }
+    if let Some((s, _)) = &m.banner {
+        banner_box(&mut c, s, &m.phase, w, h);
+    }
     c
+}
+
+/// The yellow banner, in the pixel font so it scales with the ring: taunts
+/// and round calls in the middle, fight-time notices just under the
+/// sponsor strip (so the opponent and his tell stay visible), the KO line
+/// low under the big letters.
+fn banner_box(c: &mut Canvas, s: &str, phase: &Phase, w: i32, h: i32) {
+    let per_line = (((w - 8) / 4) as usize).clamp(8, 40);
+    let mut lines: Vec<String> = Vec::new();
+    for word in s.split_whitespace() {
+        match lines.last_mut() {
+            Some(l) if l.chars().count() + 1 + word.chars().count() <= per_line => {
+                l.push(' ');
+                l.push_str(word);
+            }
+            _ => lines.push(word.to_string()),
+        }
+    }
+    if lines.is_empty() {
+        return;
+    }
+    let bw = lines.iter().map(|l| Canvas::text_width(l, 1)).max().unwrap_or(0) + 8;
+    let bh = lines.len() as i32 * 7 + 5;
+    let y = match phase {
+        Phase::Over { .. } => h - bh - 4,
+        Phase::Fighting => 2,
+        _ => h / 2 - bh / 2,
+    };
+    let x = w / 2 - bw / 2;
+    c.rect(x - 1, y - 1, bw + 2, bh + 2, Rgb::hex(0x14141c));
+    c.rect(x, y, bw, bh, YELLOW);
+    for (i, l) in lines.iter().enumerate() {
+        let lw = Canvas::text_width(l, 1);
+        c.text(w / 2 - lw / 2, y + 3 + i as i32 * 7, l, 1, Rgb::hex(0x14141c));
+    }
 }
 
 /// The KO moment: a flash, the letters slamming in, then confetti and a
@@ -475,26 +513,13 @@ fn overlay_text(f: &mut Frame, area: Rect, m: &Match, view: &View) {
             blit_str(buf, area, area.x as i32 + 1, area.y + 1 + i as u16, s, Style::new().fg(Color::White).bg(Color::Black));
         }
     }
-    if let Some((s, _)) = &m.banner {
-        let (head, body, tail) = match m.phase {
-            Phase::Over { .. } => (None::<&str>, s.as_str(), Some("[r] rematch   [enter] back to the card   [q] quit")),
-            _ => (None, s.as_str(), None),
-        };
-        // The KO line sits low, under the big pixel letters.
-        let over = matches!(m.phase, Phase::Over { .. });
-        let style = Style::new().fg(Color::Black).bg(Color::Rgb(255, 210, 63)).add_modifier(Modifier::BOLD);
-        let wtxt = body.chars().count().max(head.map_or(0, |h| h.len())).max(tail.map_or(0, |t| t.len())) + 4;
-        let x = area.x as i32 + area.width as i32 / 2 - wtxt as i32 / 2;
-        let pad = |t: &str| format!("{:^w$}", t, w = wtxt);
-        let mut y = if over { area.bottom().saturating_sub(4) } else { area.y + area.height / 2 - 1 };
-        if let Some(h) = head {
-            blit_str(buf, area, x, y, &pad(h), style);
-            y += 1;
-        }
-        blit_str(buf, area, x, y, &pad(body), style);
-        if let Some(t) = tail {
-            blit_str(buf, area, x, y + 1, &pad(t), style.remove_modifier(Modifier::BOLD));
-        }
+    // The banner itself is pixels now (see banner_box); only the key hint
+    // after a fight stays as cell text, on the ring's last row.
+    if matches!(m.phase, Phase::Over { .. }) {
+        let t = "[r] rematch   [enter] back to the card   [q] quit";
+        let x = area.x as i32 + area.width as i32 / 2 - t.len() as i32 / 2;
+        let style = Style::new().fg(Color::White).bg(Color::Black);
+        blit_str(buf, area, x, area.bottom().saturating_sub(1), t, style);
     }
 }
 
@@ -611,7 +636,6 @@ mod tests {
         m.step();
         let out = render(&m, 200, 90);
         assert!(out.contains("[r] rematch"));
-        assert!(out.contains("KO!"));
     }
 
     #[test]
@@ -643,6 +667,17 @@ mod frames {
         let Ok(dir) = std::env::var("PUNCHOUT_FRAMES") else { return };
         let poses: Vec<(&str, State, Option<Input>)> = vec![
             ("idle", State::Idle, None),
+        ];
+        // The intro banner with a taunt, and a fight-time notice.
+        let mut m = Match::new(chainguard(), 3);
+        for _ in 0..10 {
+            m.step();
+        }
+        png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/intro.png"), 6);
+        let mut m = fighting();
+        m.banner = Some(("NOTICE POSTED: HIT HIM".into(), 30));
+        png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/notice.png"), 6);
+        let _unused2: Vec<(&str, State, Option<Input>)> = vec![
             ("hook_windup", State::Startup(Action::Hook, 6), Some(Input::Block)),
             ("hook", State::Recovery(Action::Hook, 6), Some(Input::Dodge(crate::sim::Side::Left))),
             ("jab_windup", State::Startup(Action::Jab, 2), None),

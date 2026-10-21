@@ -919,13 +919,13 @@ impl Match {
                 // the notice aloud. Hit him before it expires to cancel it.
                 self.notice = Some(NOTICE_TICKS);
                 self.opp.state = State::Recovery(Action::Special, NOTICE_TICKS);
-                self.say(format!("{name} POSTED. HIT HIM TO CANCEL IT"), NOTICE_TICKS);
+                self.say("NOTICE POSTED: HIT HIM", NOTICE_TICKS);
             }
             SpecialKind::Rebrand { ticks } => {
                 self.alias += 1;
                 self.rebrand = ticks;
                 self.opp.state = State::Dodging(Side::Right, ticks);
-                self.say(format!("{name}: NOW KNOWN AS {}", self.opp_name().to_uppercase()), ticks);
+                self.say(format!("NOW KNOWN AS {}", self.opp_name().to_uppercase()), ticks);
             }
         }
     }
