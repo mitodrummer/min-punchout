@@ -263,6 +263,21 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
         },
         None => art::opp_pose(&m.opp, m.tick, m.spec.id),
     };
+    // Glove in his own face.
+    let pose = if m.self_hit > 0 && over.is_none() {
+        art::Pose {
+            body_dx: -2,
+            body_dy: 1,
+            head_dx: -5,
+            head_dy: 2,
+            face: art::Face::Hurt,
+            left: art::Glove(2, 30, 1.0),
+            right: art::Glove(28, 8, 1.2),
+            prop: None,
+        }
+    } else {
+        pose
+    };
     c.set_tint(if over.is_some() { None } else { tint });
     // A floored opponent slides to the side so the winner does not hide him.
     let ox = if matches!(over, Some((true, _))) { ox - 28 } else { ox };
@@ -407,8 +422,11 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
             HitKind::Interrupt => (format!("INTERRUPT -{:.0}", ev.damage), YELLOW),
             HitKind::Dodged => ("WHIFF".to_string(), Rgb::hex(0x7cf29a)),
             HitKind::Stagger => (format!("STAGGER -{:.0}", ev.damage), RED),
+            HitKind::SelfHit => (format!("OWN GOAL -{:.0}", ev.damage), YELLOW),
         };
-        let (x, y) = if ev.by_player { (ox + 48, 26) } else { (px + 28, py + 4) };
+        let on_opp = ev.by_player || ev.kind == HitKind::SelfHit;
+        let (x, y) = if on_opp { (ox + 48, 26) } else { (px + 28, py + 4) };
+        let x = x.min(w - Canvas::text_width(&txt, 1) - 3);
         let tw = Canvas::text_width(&txt, 1);
         c.rect(x - 2, y - 2, tw + 4, 9, Rgb::hex(0x14141c));
         c.text(x, y, &txt, 1, color);
@@ -704,6 +722,13 @@ mod frames {
             ("special", State::Recovery(Action::Special, 10), None),
             ("block", State::Blocking(6), Some(Input::Uppercut)),
             ("stunned", State::Stunned(20), None),
+        ];
+        let mut m = fighting();
+        m.opp.state = State::Stunned(40);
+        m.self_hit = 10;
+        m.events.push(crate::sim::HitEvent { by_player: false, action: Action::Hook, kind: HitKind::SelfHit, damage: 10.0 });
+        png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/self_hit.png"), 6);
+        let _unused3: Vec<(&str, State, Option<Input>)> = vec![
         ];
         // The KO celebration, won and lost, a second in.
         for (name, won) in [("ko_win", true), ("ko_lose", false)] {

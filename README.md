@@ -15,7 +15,7 @@ card, easiest first:
 | 5 | Devbox, "The Houseguest" | isolation: runs on your host, next to your keys | Rebrand: slips away and comes back under a new name. Proves: ISOLATED |
 | 6 | Flox, "The Asterisk" | reproducible, on top of whatever your laptop is | Flake Check: evaluates for 5 s, free hits. Proves: SAME VM. EVERY TIME. |
 | 7 | Chainguard, "The Base Image" | supply chain, image only: zero CVEs in the base, your build is on its own | Enterprise Quote: a briefcase to the face, dodge it. Proves: WHOLE CHAIN |
-| 8 | Nix, "The Purist" | reproducible if you pin; nobody pins | Derivation: you will not see it coming. Proves: IMPURE |
+| 8 | Nix, "The Purist" | reproducible if you pin; nobody pins; every few seconds his own build fails and he punches himself in the face | Derivation: you will not see it coming. Proves: IMPURE |
 
 The game opens on a title screen, then the card: all eight in ladder order, the next one up
 flashing, beaten ones stamped KO, the rest in silhouette. Win and the card

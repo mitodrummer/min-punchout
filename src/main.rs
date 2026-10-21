@@ -152,6 +152,7 @@ fn sfx_for(ev: &HitEvent) -> Sfx {
         (true, GuardBreak) => Sfx::Heavy,
         (_, Chip) | (_, Interrupt) => Sfx::Block,
         (_, Dodged) => Sfx::Whoosh,
+        (_, SelfHit) => Sfx::Heavy,
         (false, _) => Sfx::Hurt,
     }
 }

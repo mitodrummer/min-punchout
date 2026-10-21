@@ -303,6 +303,8 @@ pub enum HitKind {
     Interrupt,
     Dodged,
     Stagger,
+    /// The opponent hit himself.
+    SelfHit,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -450,6 +452,10 @@ pub struct OpponentSpec {
     pub special_name: &'static str,
     /// One short word for the corner labels while the special winds up.
     pub special_short: &'static str,
+    /// Every so often this opponent punches himself. 0 means never.
+    pub self_hit_every: u32,
+    pub self_hit_damage: f32,
+    pub self_hit_lines: &'static [&'static str],
     pub taunts: [&'static str; 3],
     pub ko_line: &'static str,
     pub lose_line: &'static str,
@@ -489,6 +495,7 @@ struct Brain {
     wait: u32,
     pending: Option<(Input, u32)>,
     since_special: u32,
+    since_self_hit: u32,
     /// Jabs left in a Burst.
     burst_left: u32,
 }
@@ -530,6 +537,8 @@ pub struct Match {
     pub notice: Option<u32>,
     /// Tick the fight ended on, for the KO celebration.
     pub over_at: u64,
+    /// Ticks left of the glove-in-own-face pose.
+    pub self_hit: u32,
     /// A held press: (input, ticks before it is forgotten).
     pub buffered: Option<(Input, u32)>,
     /// Fight ticks elapsed across rounds, for fatigue.
@@ -571,10 +580,11 @@ impl Match {
             revoked: None,
             notice: None,
             over_at: 0,
+            self_hit: 0,
             buffered: None,
             fought: 0,
             dmg_log: Vec::new(),
-            brain: Brain { queue: Vec::new(), wait: ms(800), pending: None, since_special: 0, burst_left: 0 },
+            brain: Brain { queue: Vec::new(), wait: ms(800), pending: None, since_special: 0, since_self_hit: 0, burst_left: 0 },
         }
     }
 
@@ -680,6 +690,7 @@ impl Match {
         self.cooldown = self.cooldown.saturating_sub(1);
         self.frozen = self.frozen.saturating_sub(1);
         self.rebrand = self.rebrand.saturating_sub(1);
+        self.self_hit = self.self_hit.saturating_sub(1);
         if let Some((_, t)) = &mut self.revoked {
             *t = t.saturating_sub(1);
             if *t == 0 {
@@ -781,9 +792,16 @@ impl Match {
     fn think(&mut self) {
         let b = &mut self.brain;
         b.since_special += 1;
+        b.since_self_hit += 1;
         if !self.opp.can_act() {
             return;
         }
+        // Some fighters are their own worst opponent.
+        if self.spec.self_hit_every > 0 && b.since_self_hit >= self.spec.self_hit_every && self.rng.chance(0.15) {
+            self.self_punch();
+            return;
+        }
+        let b = &mut self.brain;
         // Scheduled reaction fires first.
         // A reaction scheduled with delay N fires on the Nth think after it
         // was scheduled, so a 2-tick reaction to a 3-tick jab lands the block
@@ -891,6 +909,20 @@ impl Match {
                 }
             }
         }
+    }
+
+    /// The opponent winds up and hits himself. Damage, a long stun, a line
+    /// from his own error log.
+    fn self_punch(&mut self) {
+        let dmg = self.spec.self_hit_damage;
+        self.opp.health -= dmg;
+        self.opp.state = State::Stunned(45);
+        self.opp.hit_flash = 6;
+        self.self_hit = 14;
+        self.brain.since_self_hit = 0;
+        let line = *self.rng.pick(self.spec.self_hit_lines);
+        self.say(line, TICK_HZ * 2);
+        self.events.push(HitEvent { by_player: false, action: Action::Hook, kind: HitKind::SelfHit, damage: dmg });
     }
 
     /// The Deprecation Notice takes effect: everything the player dealt in the
