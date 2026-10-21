@@ -1,21 +1,25 @@
 mod art;
+mod board;
 mod pixel;
 mod render;
 mod roster;
 mod sim;
 
+use std::fs::File;
 use std::io::Write;
 use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
 
-use sim::{Input, Match, Phase, Side, TICK_HZ};
+use board::Board;
+use sim::{Input, Match, OpponentSpec, Phase, Side, State, TICK_HZ};
 
 struct Opts {
     seed: u64,
     bell: bool,
     rank: Option<u8>,
     opponent: Option<String>,
+    log: Option<String>,
 }
 
 fn parse_opts() -> Opts {
@@ -27,6 +31,7 @@ fn parse_opts() -> Opts {
         bell: true,
         rank: None,
         opponent: None,
+        log: None,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -53,8 +58,9 @@ fn parse_opts() -> Opts {
                 }
                 opts.opponent = Some(name);
             }
+            "--log" => opts.log = Some(args.next().unwrap_or_else(|| "punchout.log".into())),
             "-h" | "--help" => {
-                println!("punchout [--opponent NAME] [--rank 1-8] [--seed N] [--quiet]");
+                println!("punchout [--opponent NAME] [--rank 1-8] [--seed N] [--quiet] [--log FILE]");
                 std::process::exit(0);
             }
             _ => {}
@@ -71,6 +77,59 @@ fn bell(enabled: bool) {
     }
 }
 
+/// Session log for tuning: every key press with where the opponent was in
+/// his wind-up, and every hit that resolved. One line per record.
+struct Log(Option<File>);
+
+impl Log {
+    fn open(path: &Option<String>) -> Log {
+        Log(path.as_ref().and_then(|p| File::create(p).ok()))
+    }
+
+    fn line(&mut self, s: String) {
+        if let Some(f) = &mut self.0 {
+            let _ = writeln!(f, "{s}");
+        }
+    }
+
+    fn fight(&mut self, spec: &OpponentSpec, seed: u64) {
+        self.line(format!("fight opp={} rank={} seed={seed}", spec.name, spec.rank));
+    }
+
+    /// A key the player pressed. `left` is how many ticks before the
+    /// opponent's punch would land, when he is winding one up.
+    fn key(&mut self, m: &Match, key: &str, accepted: bool) {
+        let (opp, left) = match m.opp.state {
+            State::Startup(a, left) => (format!("windup:{a:?}"), left.to_string()),
+            ref s => (format!("{s:?}").to_lowercase(), "-".into()),
+        };
+        let opp = opp.split('(').next().unwrap_or("").to_string();
+        let ok = if accepted { "ok" } else { "ignored" };
+        self.line(format!(
+            "key t={} {key} {ok} opp={opp} left={left} player={} stam={:.0}",
+            m.tick,
+            format!("{:?}", m.player.state).split('(').next().unwrap_or("").to_lowercase(),
+            m.player.stamina
+        ));
+    }
+
+    fn events(&mut self, m: &Match) {
+        for ev in &m.events {
+            let who = if ev.by_player { "player" } else { "opp" };
+            self.line(format!("hit t={} by={who} {:?} {:?} dmg={:.0} php={:.0} ohp={:.0}", m.tick, ev.action, ev.kind, ev.damage, m.player.health, m.opp.health));
+        }
+    }
+
+    fn over(&mut self, m: &Match, won: bool) {
+        self.line(format!("over won={won} t={} round={} php={:.0} ohp={:.0}", m.tick, m.round, m.player.health, m.opp.health));
+    }
+}
+
+enum Screen {
+    Card,
+    Fight(Match, usize),
+}
+
 fn main() -> std::io::Result<()> {
     let opts = parse_opts();
     let mut terminal = ratatui::init();
@@ -81,22 +140,24 @@ fn main() -> std::io::Result<()> {
 
 fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<()> {
     let tick = Duration::from_micros(1_000_000 / TICK_HZ as u64);
-    // Opponent: named on the command line, else random for this seed. The
-    // rank dial, if given, re-tunes whoever was picked.
-    let pick = |seed: u64, named: bool| -> sim::OpponentSpec {
-        let base = match (&opts.opponent, named) {
-            (Some(n), true) => roster::by_name(n).expect("validated in parse_opts"),
-            _ => {
-                let all = roster::all();
-                all[(seed % all.len() as u64) as usize].clone()
-            }
-        };
+    let specs = roster::all();
+    let mut card = Board::new(specs.len());
+    if let Some(n) = &opts.opponent {
+        let named = roster::by_name(n).expect("validated in parse_opts");
+        if let Some(i) = specs.iter().position(|s| s.id == named.id) {
+            card.unlock_to(i);
+        }
+    }
+    // The rank dial, if given, re-tunes whoever is picked.
+    let spec_for = |i: usize| -> OpponentSpec {
+        let base = specs[i].clone();
         match opts.rank {
             Some(r) => base.at_rank(r),
             None => base,
         }
     };
-    let mut m = Match::new(pick(opts.seed, true), opts.seed);
+    let mut log = Log::open(&opts.log);
+    let mut screen = Screen::Card;
     let mut view = render::View { show_debug: false, show_hints: true, last_events: Vec::new() };
     let mut next = Instant::now() + tick;
 
@@ -117,37 +178,50 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
                         KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                         KeyCode::Tab => view.show_debug = !view.show_debug,
                         KeyCode::Char('h') => view.show_hints = !view.show_hints,
-                        KeyCode::Char('r') => {
-                            if matches!(m.phase, Phase::Over { .. }) {
-                                let seed = opts.seed.wrapping_add(m.tick);
-                                m = Match::new(pick(opts.seed, true), seed);
-                            }
-                        }
-                        KeyCode::Char('n') => {
-                            if matches!(m.phase, Phase::Over { .. }) {
-                                let seed = opts.seed.wrapping_add(m.tick).wrapping_mul(2654435761);
-                                m = Match::new(pick(seed, false), seed);
-                            }
-                        }
-                        KeyCode::Char('j') => {
-                            m.player_input(Input::Jab);
-                        }
-                        KeyCode::Char('k') => {
-                            m.player_input(Input::Hook);
-                        }
-                        KeyCode::Char('l') => {
-                            m.player_input(Input::Uppercut);
-                        }
-                        KeyCode::Char(' ') => {
-                            m.player_input(Input::Block);
-                        }
-                        KeyCode::Char('a') | KeyCode::Left => {
-                            m.player_input(Input::Dodge(Side::Left));
-                        }
-                        KeyCode::Char('d') | KeyCode::Right => {
-                            m.player_input(Input::Dodge(Side::Right));
-                        }
                         _ => {}
+                    }
+                    match &mut screen {
+                        Screen::Card => match k.code {
+                            KeyCode::Char('a') | KeyCode::Left | KeyCode::Up => card.move_cursor(-1),
+                            KeyCode::Char('d') | KeyCode::Right | KeyCode::Down => card.move_cursor(1),
+                            KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Char('j') | KeyCode::Char('k') | KeyCode::Char('l') => {
+                                let seed = opts.seed.wrapping_add(card.tick);
+                                let idx = card.cursor;
+                                let spec = spec_for(idx);
+                                log.fight(&spec, seed);
+                                screen = Screen::Fight(Match::new(spec, seed), idx);
+                            }
+                            _ => {}
+                        },
+                        Screen::Fight(m, idx) => {
+                            let idx = *idx;
+                            let over = matches!(m.phase, Phase::Over { .. });
+                            let input = match k.code {
+                                KeyCode::Char('j') => Some((Input::Jab, "jab")),
+                                KeyCode::Char('k') => Some((Input::Hook, "hook")),
+                                KeyCode::Char('l') => Some((Input::Uppercut, "uppercut")),
+                                KeyCode::Char(' ') => Some((Input::Block, "block")),
+                                KeyCode::Char('a') | KeyCode::Left => Some((Input::Dodge(Side::Left), "dodge")),
+                                KeyCode::Char('d') | KeyCode::Right => Some((Input::Dodge(Side::Right), "dodge")),
+                                _ => None,
+                            };
+                            if let (Some((i, name)), false) = (input, over) {
+                                let accepted = m.player_input(i);
+                                log.key(m, name, accepted);
+                            }
+                            if over {
+                                match k.code {
+                                    KeyCode::Char('r') => {
+                                        let seed = opts.seed.wrapping_add(m.tick).wrapping_add(card.tick);
+                                        let spec = spec_for(idx);
+                                        log.fight(&spec, seed);
+                                        screen = Screen::Fight(Match::new(spec, seed), idx);
+                                    }
+                                    KeyCode::Enter | KeyCode::Char('n') => screen = Screen::Card,
+                                    _ => {}
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -158,23 +232,39 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
             next = Instant::now() + tick;
         }
 
-        let ring = m.step();
-        if ring {
-            bell(opts.bell);
-            if matches!(m.phase, Phase::Over { .. }) {
-                bell(opts.bell);
-                bell(opts.bell);
+        card.tick += 1;
+        match &mut screen {
+            Screen::Card => {
+                terminal.draw(|f| board::draw(f, &card, &specs))?;
+            }
+            Screen::Fight(m, idx) => {
+                let was_over = matches!(m.phase, Phase::Over { .. });
+                let ring = m.step();
+                if ring {
+                    bell(opts.bell);
+                    if let Phase::Over { player_won } = m.phase {
+                        bell(opts.bell);
+                        bell(opts.bell);
+                        if !was_over {
+                            log.over(m, player_won);
+                            if player_won {
+                                card.beat(*idx);
+                            }
+                        }
+                    }
+                }
+                if !m.events.is_empty() {
+                    log.events(m);
+                    for ev in &m.events {
+                        view.last_events.push(format!("{:?} {:?} {:.0}", ev.kind, ev.action, ev.damage));
+                    }
+                    let n = view.last_events.len();
+                    if n > 4 {
+                        view.last_events.drain(0..n - 4);
+                    }
+                }
+                terminal.draw(|f| render::draw(f, m, &view))?;
             }
         }
-        if !m.events.is_empty() {
-            for ev in &m.events {
-                view.last_events.push(format!("{:?} {:?} {:.0}", ev.kind, ev.action, ev.damage));
-            }
-            let n = view.last_events.len();
-            if n > 4 {
-                view.last_events.drain(0..n - 4);
-            }
-        }
-        terminal.draw(|f| render::draw(f, &m, &view))?;
     }
 }

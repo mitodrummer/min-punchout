@@ -62,6 +62,17 @@ impl Canvas {
         }
     }
 
+    /// Copy a w x h region of `src` at (sx, sy) to (dx, dy) here.
+    pub fn blit(&mut self, src: &Canvas, sx: i32, sy: i32, w: i32, h: i32, dx: i32, dy: i32) {
+        for y in 0..h {
+            for x in 0..w {
+                if let Some(c) = src.get(sx + x, sy + y) {
+                    self.put(dx + x, dy + y, c);
+                }
+            }
+        }
+    }
+
     pub fn rect(&mut self, x: i32, y: i32, w: i32, h: i32, c: Rgb) {
         for yy in y..y + h {
             for xx in x..x + w {

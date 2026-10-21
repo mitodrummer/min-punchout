@@ -47,10 +47,22 @@ pub const JAB: Move = Move { stamina: 8.0, damage: 6.0, startup: 3, recovery: 6 
 pub const HOOK: Move = Move { stamina: 14.0, damage: 12.0, startup: 8, recovery: 10 };
 pub const UPPERCUT: Move = Move { stamina: 25.0, damage: 22.0, startup: 15, recovery: 18 };
 pub const BLOCK_COST: f32 = 6.0;
+/// Opponent windows. The player gets the wider PLAYER_* ones below; giving
+/// the opponent longer blocks breaks the anti-masher balance.
 pub const BLOCK_WINDOW: u32 = 15;
 pub const DODGE_COST: f32 = 10.0;
-/// 400 ms. Human reaction plus terminal latency needs this much.
+
 pub const DODGE_WINDOW: u32 = 12;
+/// 600 ms and 533 ms. Human reaction plus terminal latency needs this much.
+pub const PLAYER_BLOCK_WINDOW: u32 = 18;
+pub const PLAYER_DODGE_WINDOW: u32 = 16;
+/// The "dodge now" cue: the opponent flashes red once a dodge started this
+/// tick is still live when the punch lands, with two ticks of slack for
+/// terminal latency. Before that he is yellow, which means "wait".
+pub const CUE_LEAD: u32 = PLAYER_DODGE_WINDOW - 2;
+/// Bitnami's Deprecation Notice is posted this long before it takes effect.
+/// Land any punch in that time and the notice is ignored.
+pub const NOTICE_TICKS: u32 = 45;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
@@ -87,6 +99,8 @@ pub struct Fighter {
     pub regen_per_sec: f32,
     /// Multiplies startup and recovery. >1 is slower.
     pub speed: f32,
+    pub block_window: u32,
+    pub dodge_window: u32,
     /// Extra wind-up ticks added to every punch. Gives opponents a readable tell.
     pub tell_bonus: u32,
     pub state: State,
@@ -111,6 +125,8 @@ impl Fighter {
             stamina: MAX_STAMINA,
             regen_per_sec: STAMINA_REGEN_PER_SEC,
             speed: 1.0,
+            block_window: BLOCK_WINDOW,
+            dodge_window: DODGE_WINDOW,
             tell_bonus: 0,
             state: State::Idle,
             counter_window: 0,
@@ -135,6 +151,15 @@ impl Fighter {
     }
 
     /// Full wind-up length for a punch, including this fighter's tell bonus.
+    /// The punch being wound up, once it is close enough that a dodge or block
+    /// started now will catch it. This is what the red flash means.
+    pub fn cue(&self) -> Option<Action> {
+        match self.state {
+            State::Startup(a, left) if left <= CUE_LEAD => Some(a),
+            _ => None,
+        }
+    }
+
     pub fn startup_ticks(&self, a: Action) -> u32 {
         // Jabs stay quick: they are the punch you block, not the one you read.
         let bonus = if a == Action::Jab { 0 } else { self.tell_bonus };
@@ -176,7 +201,7 @@ impl Fighter {
                     return false;
                 }
                 self.stamina -= BLOCK_COST;
-                self.state = State::Blocking(BLOCK_WINDOW);
+                self.state = State::Blocking(self.block_window);
                 true
             }
             Input::Dodge(side) => {
@@ -184,7 +209,7 @@ impl Fighter {
                     return false;
                 }
                 self.stamina -= DODGE_COST;
-                self.state = State::Dodging(side, DODGE_WINDOW);
+                self.state = State::Dodging(side, self.dodge_window);
                 true
             }
         }
@@ -488,6 +513,8 @@ pub struct Match {
     pub alias: usize,
     /// Last Revoke: (hp healed, ticks left to show it).
     pub revoked: Option<(f32, u32)>,
+    /// A Deprecation Notice has been posted and takes effect in this many ticks.
+    pub notice: Option<u32>,
     /// Fight ticks elapsed across rounds, for fatigue.
     pub fought: u32,
     /// (tick, damage) the player has dealt, for Revoke.
@@ -509,7 +536,7 @@ impl Match {
         opp.special = Some(spec.special);
         opp.power = spec.power;
         Match {
-            player: Fighter::new("Minimal"),
+            player: Fighter { block_window: PLAYER_BLOCK_WINDOW, dodge_window: PLAYER_DODGE_WINDOW, ..Fighter::new("Minimal") },
             opp,
             spec,
             round: 1,
@@ -525,6 +552,7 @@ impl Match {
             rebrand: 0,
             alias: 0,
             revoked: None,
+            notice: None,
             fought: 0,
             dmg_log: Vec::new(),
             brain: Brain { queue: Vec::new(), wait: ms(800), pending: None, since_special: 0, burst_left: 0 },
@@ -630,8 +658,21 @@ impl Match {
             }
             if ev.damage > 0.0 {
                 self.dmg_log.push((self.tick, ev.damage));
+                if self.notice.take().is_some() {
+                    // The notice was ignored. Bitnami needs a moment to process that.
+                    self.opp.state = State::Stunned(20);
+                    self.say("NOTICE IGNORED", TICK_HZ);
+                }
             }
             self.events.push(ev);
+        }
+        if let Some(t) = self.notice {
+            if t <= 1 {
+                self.notice = None;
+                self.apply_notice();
+            } else {
+                self.notice = Some(t - 1);
+            }
         }
         if let Some(a) = o_hit {
             let ev = resolve(&mut self.opp, &mut self.player, a, false);
@@ -794,6 +835,20 @@ impl Match {
         }
     }
 
+    /// The Deprecation Notice takes effect: everything the player dealt in the
+    /// notice window goes back on the opponent's health bar.
+    fn apply_notice(&mut self) {
+        let SpecialKind::Revoke { window } = self.spec.kind else { return };
+        let since = self.tick.saturating_sub(window as u64);
+        let healed: f32 = self.dmg_log.iter().filter(|(t, _)| *t >= since).map(|(_, d)| d).sum();
+        self.dmg_log.clear();
+        let healed = healed.min(self.opp.max_health - self.opp.health);
+        self.opp.health += healed;
+        self.revoked = Some((healed, TICK_HZ * 2));
+        self.opp.state = State::Idle;
+        self.say(format!("{} HEALS {healed:.0} HP", self.spec.name.to_uppercase()), TICK_HZ * 2);
+    }
+
     fn fire_special(&mut self) {
         let name = self.spec.special_name;
         match self.spec.kind {
@@ -810,15 +865,12 @@ impl Match {
                 self.brain.burst_left = count;
                 self.say(name, TICK_HZ);
             }
-            SpecialKind::Revoke { window } => {
-                let since = self.tick.saturating_sub(window as u64);
-                let healed: f32 = self.dmg_log.iter().filter(|(t, _)| *t >= since).map(|(_, d)| d).sum();
-                self.dmg_log.clear();
-                let healed = healed.min(self.opp.max_health - self.opp.health);
-                self.opp.health += healed;
-                self.revoked = Some((healed, TICK_HZ * 2));
-                self.opp.state = State::Recovery(Action::Special, 12);
-                self.say(format!("{name}: {healed:.0} HP REVOKED"), TICK_HZ * 2);
+            SpecialKind::Revoke { .. } => {
+                // Posted, not applied: the opponent drops his guard and reads
+                // the notice aloud. Hit him before it expires to cancel it.
+                self.notice = Some(NOTICE_TICKS);
+                self.opp.state = State::Recovery(Action::Special, NOTICE_TICKS);
+                self.say(format!("{name} POSTED. HIT HIM TO CANCEL IT"), NOTICE_TICKS);
             }
             SpecialKind::Rebrand { ticks } => {
                 self.alias += 1;
@@ -970,7 +1022,7 @@ mod balance {
         let masher = |_: &Match| Some(Input::Jab);
         let patient = |m: &Match| match m.opp.state {
             // Dodge any telegraphed punch, then counter with a hook.
-            State::Startup(_, t) if t <= DODGE_WINDOW - 2 && m.player.can_act() => Some(Input::Dodge(Side::Left)),
+            State::Startup(_, t) if t <= CUE_LEAD && m.player.can_act() => Some(Input::Dodge(Side::Left)),
             _ if m.player.counter_window > 0 && m.player.can_act() => Some(Input::Hook),
             // Guard break a blocker with an uppercut when safe.
             State::Blocking(t) if t > 4 && m.player.can_act() && m.player.stamina > 60.0 => Some(Input::Uppercut),
@@ -1070,12 +1122,16 @@ mod ranks {
             if !m.player.can_act() {
                 return None;
             }
-            if let State::Startup(a, left) = m.opp.state {
-                let key = m.tick - left as u64;
-                if self.reacted_to != Some(key) && a != Action::Jab {
+            // A human reads the red flash, not the sim state: they react once
+            // the cue shows, with their reaction delay on top. Jabs flash at
+            // once, so the same rule covers them.
+            if let (Some(a), State::Startup(_, left)) = (m.opp.cue(), m.opp.state) {
+                let key = m.tick + left as u64;
+                if self.reacted_to != Some(key) {
                     self.reacted_to = Some(key);
                     if self.rng.chance(0.85) {
-                        let input = if self.rng.chance(0.75) { Input::Dodge(Side::Left) } else { Input::Block };
+                        let dodge = a != Action::Jab && self.rng.chance(0.75);
+                        let input = if dodge { Input::Dodge(Side::Left) } else { Input::Block };
                         self.scheduled = Some((input, self.reaction));
                     }
                     return None;

@@ -213,8 +213,9 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
     let ox = cx - 22;
     let oy = 10;
     let tell = tell_progress(&m.opp);
+    let cue = m.opp.cue().is_some();
     let tint = match tell {
-        Some((_, p)) if p < 0.5 => Some((YELLOW, 0.35)),
+        Some(_) if !cue => Some((YELLOW, 0.35)),
         Some(_) => {
             if (m.tick / 2) % 2 == 0 {
                 Some((RED, 0.55))
@@ -239,8 +240,11 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
         let label = if m.fought <= m.spec.prebuild + 1 { "PREBUILDING" } else { m.spec.special_name };
         status.push((format!("{}: {}S", label, (m.frozen + TICK_HZ - 1) / TICK_HZ), YELLOW));
     }
+    if let Some(t) = m.notice {
+        status.push((format!("NOTICE: HIT HIM IN {:.1}S", t as f32 / TICK_HZ as f32), YELLOW));
+    }
     if let Some((hp, _)) = m.revoked {
-        status.push((format!("{hp:.0} HP REVOKED"), RED));
+        status.push((format!("HEALED +{hp:.0} HP"), RED));
     }
     if m.spec.fatigue < 1.0 {
         // The minute counter: how much of the opponent's billing is used up.
@@ -258,7 +262,7 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
 
     // Tell fuse and punch name beside the head.
     if let Some((a, p)) = tell {
-        let color = if p < 0.5 { YELLOW } else { RED };
+        let color = if cue { RED } else { YELLOW };
         // Fuse directly under the banner, where the eye already is.
         let bw = tw + 24;
         c.rect(cx - bw / 2 - 1, 16, bw + 2, 4, Rgb::hex(0x14141c));
@@ -339,7 +343,7 @@ fn overlay_text(f: &mut Frame, area: Rect, m: &Match, view: &View) {
             Phase::Over { player_won } => (
                 Some(if player_won { "YOU WIN" } else { "YOU LOSE" }),
                 s.as_str(),
-                Some("[r] rematch   [n] next opponent   [q] quit"),
+                Some("[r] rematch   [enter] back to the card   [q] quit"),
             ),
             _ => (None, s.as_str(), None),
         };
