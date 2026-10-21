@@ -4,6 +4,7 @@ mod pixel;
 mod render;
 mod roster;
 mod sim;
+mod sound;
 
 use std::fs::File;
 use std::io::Write;
@@ -12,7 +13,8 @@ use std::time::{Duration, Instant};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
 
 use board::Board;
-use sim::{Input, Match, OpponentSpec, Phase, Side, State, TICK_HZ};
+use sim::{Action, HitEvent, HitKind, Input, Match, OpponentSpec, Phase, Side, State, TICK_HZ};
+use sound::{Audio, Music, Sfx};
 
 struct Opts {
     seed: u64,
@@ -20,6 +22,7 @@ struct Opts {
     rank: Option<u8>,
     opponent: Option<String>,
     log: Option<String>,
+    no_music: bool,
 }
 
 fn parse_opts() -> Opts {
@@ -32,6 +35,7 @@ fn parse_opts() -> Opts {
         rank: None,
         opponent: None,
         log: None,
+        no_music: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -58,9 +62,10 @@ fn parse_opts() -> Opts {
                 }
                 opts.opponent = Some(name);
             }
+            "--no-music" => opts.no_music = true,
             "--log" => opts.log = Some(args.next().unwrap_or_else(|| "punchout.log".into())),
             "-h" | "--help" => {
-                println!("punchout [--opponent NAME] [--rank 1-8] [--seed N] [--quiet] [--log FILE]");
+                println!("punchout [--opponent NAME] [--rank 1-8] [--seed N] [--quiet] [--no-music] [--log FILE]");
                 std::process::exit(0);
             }
             _ => {}
@@ -130,6 +135,26 @@ enum Screen {
     Fight(Match, usize),
 }
 
+fn play(audio: &Option<Audio>, s: Sfx) {
+    if let Some(a) = audio {
+        a.play(s);
+    }
+}
+
+fn sfx_for(ev: &HitEvent) -> Sfx {
+    use HitKind::*;
+    match (ev.by_player, ev.kind) {
+        (true, Hit) | (true, Stagger) => {
+            if ev.action == Action::Jab { Sfx::Jab } else { Sfx::Heavy }
+        }
+        (true, Counter) => Sfx::Counter,
+        (true, GuardBreak) => Sfx::Heavy,
+        (_, Chip) | (_, Interrupt) => Sfx::Block,
+        (_, Dodged) => Sfx::Whoosh,
+        (false, _) => Sfx::Hurt,
+    }
+}
+
 fn main() -> std::io::Result<()> {
     let opts = parse_opts();
     let mut terminal = ratatui::init();
@@ -157,6 +182,9 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
         }
     };
     let mut log = Log::open(&opts.log);
+    // --quiet silences everything. Without an audio device we fall back to
+    // the terminal bell.
+    let mut audio = if opts.bell { Audio::new(!opts.no_music) } else { None };
     let mut screen = Screen::Card;
     let mut view = render::View { show_debug: false, show_hints: true, last_events: Vec::new() };
     let mut next = Instant::now() + tick;
@@ -182,13 +210,23 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
                     }
                     match &mut screen {
                         Screen::Card => match k.code {
-                            KeyCode::Char('a') | KeyCode::Left | KeyCode::Up => card.move_cursor(-1),
-                            KeyCode::Char('d') | KeyCode::Right | KeyCode::Down => card.move_cursor(1),
+                            KeyCode::Char('a') | KeyCode::Left | KeyCode::Up => {
+                                card.move_cursor(-1);
+                                play(&audio, Sfx::Menu);
+                            }
+                            KeyCode::Char('d') | KeyCode::Right | KeyCode::Down => {
+                                card.move_cursor(1);
+                                play(&audio, Sfx::Menu);
+                            }
                             KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Char('j') | KeyCode::Char('k') | KeyCode::Char('l') => {
                                 let seed = opts.seed.wrapping_add(card.tick);
                                 let idx = card.cursor;
                                 let spec = spec_for(idx);
                                 log.fight(&spec, seed);
+                                play(&audio, Sfx::Confirm);
+                                if let Some(a) = &mut audio {
+                                    a.music(Music::Fight);
+                                }
                                 screen = Screen::Fight(Match::new(spec, seed), idx);
                             }
                             _ => {}
@@ -215,6 +253,9 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
                                         let seed = opts.seed.wrapping_add(m.tick).wrapping_add(card.tick);
                                         let spec = spec_for(idx);
                                         log.fight(&spec, seed);
+                                        if let Some(a) = &mut audio {
+                                            a.music(Music::Fight);
+                                        }
                                         screen = Screen::Fight(Match::new(spec, seed), idx);
                                     }
                                     KeyCode::Enter | KeyCode::Char('n') => screen = Screen::Card,
@@ -235,22 +276,53 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
         card.tick += 1;
         match &mut screen {
             Screen::Card => {
+                if let Some(a) = &mut audio {
+                    a.music(Music::Card);
+                }
                 terminal.draw(|f| board::draw(f, &card, &specs))?;
             }
             Screen::Fight(m, idx) => {
                 let was_over = matches!(m.phase, Phase::Over { .. });
+                let cue_before = m.opp.cue();
+                let stunned_before = matches!(m.opp.state, State::Stunned(_)) || matches!(m.player.state, State::Stunned(_));
+                let special_before = matches!(m.opp.state, State::Startup(Action::Special, _));
                 let ring = m.step();
                 if ring {
-                    bell(opts.bell);
+                    match &audio {
+                        Some(a) => a.play(Sfx::Bell),
+                        None => bell(opts.bell),
+                    }
                     if let Phase::Over { player_won } = m.phase {
-                        bell(opts.bell);
-                        bell(opts.bell);
                         if !was_over {
                             log.over(m, player_won);
                             if player_won {
                                 card.beat(*idx);
                             }
+                            if let Some(a) = &mut audio {
+                                a.music(Music::Off);
+                                a.play(if player_won { Sfx::Win } else { Sfx::Lose });
+                            } else {
+                                bell(opts.bell);
+                                bell(opts.bell);
+                            }
                         }
+                    }
+                }
+                if let Some(a) = &audio {
+                    if cue_before.is_none() {
+                        if let Some(act) = m.opp.cue() {
+                            a.play(if act == Action::Jab { Sfx::CueJab } else { Sfx::Cue });
+                        }
+                    }
+                    if !special_before && matches!(m.opp.state, State::Startup(Action::Special, _)) {
+                        a.play(Sfx::Alarm);
+                    }
+                    let stunned_now = matches!(m.opp.state, State::Stunned(_)) || matches!(m.player.state, State::Stunned(_));
+                    if !stunned_before && stunned_now {
+                        a.play(Sfx::Stun);
+                    }
+                    for ev in &m.events {
+                        a.play(sfx_for(ev));
                     }
                 }
                 if !m.events.is_empty() {

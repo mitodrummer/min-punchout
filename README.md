@@ -25,9 +25,10 @@ question: do the stamina numbers make patience win and mashing lose?
 cargo run --release
 cargo run --release -- --opponent docker   # unlock the card up to a named opponent (a prefix is enough)
 cargo run --release -- --log session.log   # record every key press and hit for tuning
+cargo run --release -- --no-music          # effects only
 cargo run --release -- --rank 3            # dev dial: re-tune the opponent to ladder rank 1 (easy) to 8 (boss)
 cargo run --release -- --seed 7            # replayable opponent behaviour
-cargo run --release -- --quiet             # no terminal bell
+cargo run --release -- --quiet             # no sound at all
 ```
 
 Needs a terminal of at least 100x40 with true colour (any modern terminal). The ring
@@ -96,6 +97,20 @@ or `src/sim.rs`, rerun, read the table.
 
 ## Building in a Minimal sandbox
 
-`min add --session rust gcc binutils`, then `export CARGO_HOME=/state/cargo`.
+`min add --session rust gcc binutils alsa-lib pkgconf`, then `export CARGO_HOME=/state/cargo`.
 There is no `cc` alias in the sandbox, so `.cargo/config.toml` names `gcc`
 as the linker.
+
+## Sound
+
+Chiptune, synthesized at startup from two pulse channels, a triangle bass
+and a noise drum, the NES recipe. There is a card theme, a fight loop, and
+an effect for every hit, block, dodge, stun, the bell, and the press cue:
+a double blip the instant the opponent turns red, so you can play it by
+ear. Nothing on disk. It plays through the OS mixer via `rodio`, so run it
+on a machine with speakers (a Mac host is fine); where no audio device
+opens, the game falls back to the terminal bell. `--no-music` keeps the
+effects, `--quiet` silences everything.
+
+Building on Linux needs the ALSA headers (`alsa-lib` and `pkgconf` in a
+Minimal sandbox). macOS and Windows need nothing extra.
