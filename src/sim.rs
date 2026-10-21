@@ -519,6 +519,8 @@ pub struct Match {
     pub revoked: Option<(f32, u32)>,
     /// A Deprecation Notice has been posted and takes effect in this many ticks.
     pub notice: Option<u32>,
+    /// Tick the fight ended on, for the KO celebration.
+    pub over_at: u64,
     /// A held press: (input, ticks before it is forgotten).
     pub buffered: Option<(Input, u32)>,
     /// Fight ticks elapsed across rounds, for fatigue.
@@ -559,6 +561,7 @@ impl Match {
             alias: 0,
             revoked: None,
             notice: None,
+            over_at: 0,
             buffered: None,
             fought: 0,
             dmg_log: Vec::new(),
@@ -733,11 +736,13 @@ impl Match {
         };
 
         if self.opp.health <= 0.0 {
+            self.over_at = self.tick;
             self.phase = Phase::Over { player_won: true };
             self.say(format!("KO!  {}", self.spec.ko_line), u32::MAX);
             return true;
         }
         if self.player.health <= 0.0 {
+            self.over_at = self.tick;
             self.phase = Phase::Over { player_won: false };
             self.say(format!("KO!  {}", self.spec.lose_line), u32::MAX);
             return true;
@@ -747,6 +752,7 @@ impl Match {
             if self.round >= ROUNDS {
                 // Ties go to Minimal. It is our game.
                 let won = self.player.health >= self.opp.health;
+                self.over_at = self.tick;
                 self.phase = Phase::Over { player_won: won };
                 let line = if won {
                     "DECISION: MINIMAL".to_string()

@@ -235,10 +235,50 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
         None if m.opp.hit_flash > 0 => Some((WHITE, 0.6)),
         None => None,
     };
-    c.set_tint(tint);
-    let pose = art::opp_pose(&m.opp, m.tick, m.spec.id);
+    // After the final bell: the loser is down, the winner plays to the crowd.
+    let over = match m.phase {
+        Phase::Over { player_won } => Some((player_won, m.tick.saturating_sub(m.over_at))),
+        _ => None,
+    };
+    let bounce = ((m.tick / 5) % 2) as i32;
+    let pose = match over {
+        Some((true, _)) => art::Pose {
+            body_dx: 0,
+            body_dy: 16,
+            head_dx: 7,
+            head_dy: 21,
+            face: art::Face::Dizzy,
+            left: art::Glove(-4, 54, 1.0),
+            right: art::Glove(46, 52, 1.0),
+            prop: None,
+        },
+        Some((false, _)) => art::Pose {
+            body_dx: 0,
+            body_dy: -bounce,
+            head_dx: 0,
+            head_dy: -bounce,
+            face: art::Face::Smug,
+            left: art::Glove(2, 26, 1.0),
+            right: art::Glove(42, -6 + bounce * 2, 1.15),
+            prop: None,
+        },
+        None => art::opp_pose(&m.opp, m.tick, m.spec.id),
+    };
+    c.set_tint(if over.is_some() { None } else { tint });
+    // A floored opponent slides to the side so the winner does not hide him.
+    let ox = if matches!(over, Some((true, _))) { ox - 28 } else { ox };
     art::draw_opponent(&mut c, ox, oy, &look, &pose, m.tick);
     c.set_tint(None);
+    if let Some((true, el)) = over {
+        // Stars circling the fallen head.
+        let (hx, hy) = (ox + pose.head_dx + 22, oy + pose.head_dy + 2);
+        for k in 0..4 {
+            let a = el as f32 / 5.0 + k as f32 * std::f32::consts::FRAC_PI_2;
+            let sx = hx + (a.cos() * 12.0) as i32;
+            let sy = hy + (a.sin() * 3.0) as i32;
+            c.rect(sx, sy, 2, 2, if k % 2 == 0 { YELLOW } else { WHITE });
+        }
+    }
 
     // Signature-move status labels, top right of the ring.
     let mut status: Vec<(String, Rgb)> = Vec::new();
@@ -314,10 +354,34 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
     }
 
     // Player, from behind, bottom centre.
-    let ppose = art::player_pose(&m.player, m.tick);
+    let ppose = match over {
+        Some((true, _)) => art::Pose {
+            body_dx: 0,
+            body_dy: -bounce * 2,
+            head_dx: 0,
+            head_dy: -bounce * 2,
+            face: art::Face::Normal,
+            left: art::Glove(0, -8 + bounce * 2, 1.0),
+            right: art::Glove(24, -10 + bounce * 2, 1.0),
+            prop: None,
+        },
+        Some((false, _)) => art::Pose {
+            body_dx: 0,
+            body_dy: 6,
+            head_dx: 3,
+            head_dy: 8,
+            face: art::Face::Normal,
+            left: art::Glove(0, 22, 1.0),
+            right: art::Glove(24, 22, 1.0),
+            prop: None,
+        },
+        None => art::player_pose(&m.player, m.tick),
+    };
     let px = cx - 12;
     let py = h - 25;
-    let ptint = if m.player.hit_flash > 0 {
+    let ptint = if matches!(over, Some((false, _))) {
+        Some((Rgb::hex(0x14141c), 0.45))
+    } else if m.player.hit_flash > 0 {
         Some((RED, 0.6))
     } else if m.player.counter_window > 0 {
         Some((MAGENTA, 0.35))
@@ -350,7 +414,57 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
         c.rect(x - 2, y - 2, tw + 4, 9, Rgb::hex(0x14141c));
         c.text(x, y, &txt, 1, color);
     }
+    if let Some((won, el)) = over {
+        celebrate(&mut c, won, el, w, h);
+    }
     c
+}
+
+/// The KO moment: a flash, the letters slamming in, then confetti and a
+/// colour-cycling YOU WIN. A loss gets the slam and a grey YOU LOSE.
+fn celebrate(c: &mut Canvas, won: bool, el: u64, w: i32, h: i32) {
+    let cx = w / 2;
+    if el < 6 && el % 2 == 0 {
+        c.rect(0, 0, w, h, if won { WHITE } else { RED });
+        return;
+    }
+    if won && el >= 10 {
+        // Confetti: deterministic particles so the frame is reproducible.
+        let colours = [YELLOW, MAGENTA, Rgb::hex(0x3ddc97), WHITE, Rgb::hex(0x7fd3ff)];
+        let t = (el - 10) as i32;
+        for i in 0..70i32 {
+            let speed = 1 + i % 3;
+            let x0 = (i * 37 + 11) % w;
+            let y = ((i * 53) % h + t * speed / 2) % h;
+            let x = x0 + (((t as f32) / 7.0 + i as f32).sin() * 2.0) as i32;
+            c.rect(x, y, 2, 1, colours[(i % 5) as usize]);
+        }
+    }
+    let shadow = Rgb::hex(0x14141c);
+    if el < 36 {
+        // KO! slams in: grows over the first few ticks, then shakes.
+        let scale = (1 + el as i32 / 3).min(4);
+        let shake = if el > 12 && el % 2 == 0 { 1 } else { 0 };
+        let tw = Canvas::text_width("KO!", scale);
+        let x = cx - tw / 2 + shake;
+        let y = 24;
+        let col = if won { YELLOW } else { RED };
+        c.text(x + 2, y + 2, "KO!", scale, shadow);
+        c.text(x, y, "KO!", scale, col);
+        return;
+    }
+    // Scale 2 keeps the word clear of the raised gloves and the fallen head.
+    let (word, scale, y) = if won { ("YOU WIN", 2, 19) } else { ("YOU LOSE", 2, 38) };
+    let tw = Canvas::text_width(word, scale);
+    let x = cx - tw / 2;
+    let col = if won {
+        [YELLOW, WHITE, MAGENTA, Rgb::hex(0x3ddc97)][((el / 4) % 4) as usize]
+    } else {
+        Rgb::hex(0x9a9aa8)
+    };
+    c.rect(x - 4, y - 3, tw + 8, 5 * scale + 6, shadow);
+    c.text(x + 1, y + 1, word, scale, Rgb::hex(0x3a3550));
+    c.text(x, y, word, scale, col);
 }
 
 /// Text overlays on top of the pixels: debug log and the round/KO banner.
@@ -363,18 +477,16 @@ fn overlay_text(f: &mut Frame, area: Rect, m: &Match, view: &View) {
     }
     if let Some((s, _)) = &m.banner {
         let (head, body, tail) = match m.phase {
-            Phase::Over { player_won } => (
-                Some(if player_won { "YOU WIN" } else { "YOU LOSE" }),
-                s.as_str(),
-                Some("[r] rematch   [enter] back to the card   [q] quit"),
-            ),
+            Phase::Over { .. } => (None::<&str>, s.as_str(), Some("[r] rematch   [enter] back to the card   [q] quit")),
             _ => (None, s.as_str(), None),
         };
+        // The KO line sits low, under the big pixel letters.
+        let over = matches!(m.phase, Phase::Over { .. });
         let style = Style::new().fg(Color::Black).bg(Color::Rgb(255, 210, 63)).add_modifier(Modifier::BOLD);
         let wtxt = body.chars().count().max(head.map_or(0, |h| h.len())).max(tail.map_or(0, |t| t.len())) + 4;
         let x = area.x as i32 + area.width as i32 / 2 - wtxt as i32 / 2;
         let pad = |t: &str| format!("{:^w$}", t, w = wtxt);
-        let mut y = area.y + area.height / 2 - 1;
+        let mut y = if over { area.bottom().saturating_sub(4) } else { area.y + area.height / 2 - 1 };
         if let Some(h) = head {
             blit_str(buf, area, x, y, &pad(h), style);
             y += 1;
@@ -498,7 +610,8 @@ mod tests {
         m.player.state = State::Startup(Action::Hook, 1);
         m.step();
         let out = render(&m, 200, 90);
-        assert!(out.contains("YOU WIN"));
+        assert!(out.contains("[r] rematch"));
+        assert!(out.contains("KO!"));
     }
 
     #[test]
@@ -540,6 +653,17 @@ mod frames {
             ("special", State::Recovery(Action::Special, 10), None),
             ("block", State::Blocking(6), Some(Input::Uppercut)),
             ("stunned", State::Stunned(20), None),
+        ];
+        // The KO celebration, won and lost, a second in.
+        for (name, won) in [("ko_win", true), ("ko_lose", false)] {
+            let mut m = fighting();
+            if won { m.opp.health = 0.0 } else { m.player.health = 0.0 }
+            for _ in 0..45 {
+                m.step();
+            }
+            png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/{name}.png"), 6);
+        }
+        let _unused: Vec<(&str, State, Option<Input>)> = vec![
         ];
         for (name, st, input) in poses {
             let mut m = fighting();
