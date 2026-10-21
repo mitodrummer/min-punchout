@@ -304,7 +304,7 @@ pub fn nix() -> OpponentSpec {
         block_chance: 0.4,
         dodge_chance: 0.4,
         reaction_delay: 1,
-        power: 1.4,
+        power: 1.15,
         patterns: vec![
             vec![Do(Jab), Do(Uppercut), Wait(ms(300))],
             vec![Do(Hook), Do(Hook), Wait(ms(200))],

@@ -2,7 +2,8 @@
 //! TICK_HZ ticks per second. Timings from the design doc converted to ticks.
 
 pub const TICK_HZ: u32 = 30;
-pub const ROUND_TICKS: u32 = 60 * TICK_HZ;
+/// 35 s rounds: short enough that a real fight reaches round two.
+pub const ROUND_TICKS: u32 = 35 * TICK_HZ;
 pub const ROUNDS: u8 = 3;
 pub const MAX_HEALTH: f32 = 100.0;
 pub const MAX_STAMINA: f32 = 100.0;

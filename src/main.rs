@@ -131,6 +131,7 @@ impl Log {
 }
 
 enum Screen {
+    Title,
     Card,
     Fight(Match, usize),
 }
@@ -185,7 +186,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
     // --quiet silences everything. Without an audio device we fall back to
     // the terminal bell.
     let mut audio = if opts.bell { Audio::new(!opts.no_music) } else { None };
-    let mut screen = Screen::Card;
+    let mut screen = if opts.opponent.is_some() { Screen::Card } else { Screen::Title };
     let mut view = render::View { show_debug: false, show_hints: true, last_events: Vec::new() };
     let mut next = Instant::now() + tick;
 
@@ -209,6 +210,12 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
                         _ => {}
                     }
                     match &mut screen {
+                        Screen::Title => {
+                            if matches!(k.code, KeyCode::Enter | KeyCode::Char(' ')) {
+                                play(&audio, Sfx::Confirm);
+                                screen = Screen::Card;
+                            }
+                        }
                         Screen::Card => match k.code {
                             KeyCode::Char('a') | KeyCode::Left | KeyCode::Up => {
                                 card.move_cursor(-1);
@@ -275,6 +282,12 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
 
         card.tick += 1;
         match &mut screen {
+            Screen::Title => {
+                if let Some(a) = &mut audio {
+                    a.music(Music::Card);
+                }
+                terminal.draw(|f| board::draw_title(f, card.tick))?;
+            }
             Screen::Card => {
                 if let Some(a) = &mut audio {
                     a.music(Music::Card);

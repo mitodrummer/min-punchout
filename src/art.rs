@@ -581,8 +581,6 @@ pub fn draw_player(c: &mut Canvas, ox: i32, oy: i32, p: &Palette, pose: &Pose) {
     let o = p.outline;
     c.rect_o(bx + 5, by + 21, 14, 5, p.trunks, o);
     c.rect(bx + 5, by + 21, 14, 1, p.band);
-    // The mark on the back of the trunks.
-    draw_mark(c, bx + 8, by + 22, 8, p.band);
     c.rect_o(bx + 5, by + 11, 14, 11, p.skin, o);
     c.ellipse_o(bx + 6, by + 13, 3.0, 2.5, p.skin, o);
     c.ellipse_o(bx + 18, by + 13, 3.0, 2.5, p.skin, o);
@@ -596,67 +594,3 @@ pub fn draw_player(c: &mut Canvas, ox: i32, oy: i32, p: &Palette, pose: &Pose) {
     arm(c, bx + 18, by + 13, ox + pose.right.0, oy + pose.right.1, pose.right.2 * 0.75, p);
 }
 
-// ------------------------------------------------------------ the mark
-
-/// The Minimal mark, rasterised from the brand SVG (48x24 box): two slanted
-/// strokes and a short stub at the lower left. `w` pixels wide, `w / 2` tall.
-pub fn draw_mark(c: &mut Canvas, x: i32, y: i32, w: i32, col: Rgb) {
-    const A: [(f32, f32); 6] = [(10.27, 0.0), (18.18, 0.0), (29.24, 16.0), (29.24, 24.0), (21.34, 24.0), (10.27, 8.0)];
-    const B: [(f32, f32); 6] = [(28.45, 0.0), (36.36, 0.0), (47.42, 16.0), (47.42, 24.0), (39.52, 24.0), (28.45, 8.0)];
-    const C: [(f32, f32); 6] = [(3.16, 24.0), (0.0, 19.43), (0.0, 11.43), (7.90, 11.43), (11.06, 16.0), (11.06, 24.0)];
-    fn inside(poly: &[(f32, f32)], px: f32, py: f32) -> bool {
-        let mut hit = false;
-        let n = poly.len();
-        for i in 0..n {
-            let (x0, y0) = poly[i];
-            let (x1, y1) = poly[(i + 1) % n];
-            if (y0 > py) != (y1 > py) && px < x0 + (py - y0) * (x1 - x0) / (y1 - y0) {
-                hit = !hit;
-            }
-        }
-        hit
-    }
-    // Below about 16 pixels the sampled strokes blur into each other, so the
-    // two small sizes are drawn by hand.
-    let small: Option<&[&str]> = match w {
-        12 => Some(&["...XX..XX...", "...XX...XX..", "....XX..XX..", "XX..XX...XX.", ".XX..XX..XX.", ".XX..XX...XX"]),
-        8 => Some(&["..X..X..", "..X...X.", "X..X..X.", ".X..X..X"]),
-        _ => None,
-    };
-    if let Some(rows) = small {
-        for (py, row) in rows.iter().enumerate() {
-            for (px, ch) in row.chars().enumerate() {
-                if ch == 'X' {
-                    c.put(x + px as i32, y + py as i32, col);
-                }
-            }
-        }
-        return;
-    }
-    let h = (w / 2).max(1);
-    let sx = 48.0 / w as f32;
-    let sy = 24.0 / h as f32;
-    for py in 0..h {
-        for px in 0..w {
-            // 2x2 supersample: a pixel is on when at least half of it is ink.
-            let mut cover = 0;
-            for (ox, oy) in [(0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)] {
-                let u = (px as f32 + ox) * sx;
-                let v = (py as f32 + oy) * sy;
-                if inside(&A, u, v) || inside(&B, u, v) || inside(&C, u, v) {
-                    cover += 1;
-                }
-            }
-            if cover >= 2 {
-                c.put(x + px, y + py, col);
-            }
-        }
-    }
-}
-
-/// The mark on its own small canvas, for flushing into a cell rectangle.
-pub fn mark_canvas(w: i32, bg: Rgb, col: Rgb) -> Canvas {
-    let mut c = Canvas::new(w, w / 2, bg);
-    draw_mark(&mut c, 0, 0, w, col);
-    c
-}

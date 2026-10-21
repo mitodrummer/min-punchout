@@ -13,6 +13,9 @@ use crate::art;
 use crate::pixel::{Canvas, Rgb};
 use crate::sim::{Action, Fighter, HitKind, Match, Phase, State, MAX_STAMINA, TICK_HZ};
 
+/// The Minimal wordmark as it appears in the dashboard and the terminal demo.
+pub const LOGO: &str = "▃🭕🭏🭕🭏 M I N I M A L";
+
 /// Smallest terminal we lay out for. Below this we ask for a bigger window.
 pub const MIN_COLS: u16 = 100;
 pub const MIN_ROWS: u16 = 40;
@@ -66,17 +69,11 @@ fn health_color(ratio: f64) -> Color {
 }
 
 fn fighter_bars(f: &mut Frame, area: Rect, fi: &Fighter, right: bool) {
-    // Minimal's bars carry the mark on their left, 20x10 pixels in 20x5 cells.
-    let area = if right || area.width < 40 {
-        area
-    } else {
-        let mark = art::mark_canvas(20, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5));
-        mark.flush(f.buffer_mut(), Rect { x: area.x, y: area.y, width: 20, height: 5.min(area.height) }, 1);
-        Rect { x: area.x + 22, y: area.y, width: area.width - 22, height: area.height }
-    };
     let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(2), Constraint::Length(2)])
         .split(area);
-    let mut spans = vec![Span::styled(fi.name.to_uppercase(), Style::new().bold())];
+    // Minimal's own name row is the wordmark.
+    let name = if right { fi.name.to_uppercase() } else { LOGO.to_string() };
+    let mut spans = vec![Span::styled(name, Style::new().bold())];
     if fi.exhausted() {
         spans.push(Span::raw("  EXHAUSTED").red().bold());
     }
@@ -502,13 +499,7 @@ fn celebrate(c: &mut Canvas, won: bool, el: u64, w: i32, h: i32, proved: &str) {
     } else {
         Rgb::hex(0x9a9aa8)
     };
-    // The mark sits left of the word on a win.
-    let mw = if won { 14 } else { 0 };
-    let x = x + mw / 2;
-    c.rect(x - 4 - mw, y - 3, tw + 8 + mw, 5 * scale + 6, shadow);
-    if won {
-        art::draw_mark(c, x - 2 - mw, y + 1, 12, Rgb::hex(0xe5e5e5));
-    }
+    c.rect(x - 4, y - 3, tw + 8, 5 * scale + 6, shadow);
     c.text(x + 1, y + 1, word, scale, Rgb::hex(0x3a3550));
     c.text(x, y, word, scale, col);
     if won && el >= 50 {
@@ -529,12 +520,22 @@ fn overlay_text(f: &mut Frame, area: Rect, m: &Match, view: &View) {
         }
     }
     // The banner itself is pixels now (see banner_box); only the key hint
-    // after a fight stays as cell text, on the ring's last row.
-    if matches!(m.phase, Phase::Over { .. }) {
+    // after a fight stays as cell text, on the ring's last row, and the
+    // wordmark above YOU WIN.
+    if let Phase::Over { player_won } = m.phase {
         let t = "[r] rematch   [enter] back to the card   [q] quit";
         let x = area.x as i32 + area.width as i32 / 2 - t.len() as i32 / 2;
         let style = Style::new().fg(Color::White).bg(Color::Black);
         blit_str(buf, area, x, area.bottom().saturating_sub(1), t, style);
+        if player_won && m.tick.saturating_sub(m.over_at) >= 36 {
+            let scale = ((area.width as i32 / RING_W).min(area.height as i32 * 2 / RING_H)).max(1);
+            let lw = LOGO.chars().count() as i32;
+            let lx = area.x as i32 + area.width as i32 / 2 - lw / 2;
+            let ly = area.y as i32 + (16 * scale) / 2 - 1;
+            if ly >= area.y as i32 {
+                blit_str(buf, area, lx, ly as u16, LOGO, Style::new().fg(Color::White).bg(Color::Black).bold());
+            }
+        }
     }
 }
 
@@ -629,7 +630,7 @@ mod tests {
         m.player_input(Input::Block);
         let out = render(&m, 100, 40);
         println!("{out}");
-        assert!(out.contains("MINIMAL"));
+        assert!(out.contains("M I N I M A L"));
         assert!(out.contains("HOOK coming"));
     }
 
@@ -689,9 +690,6 @@ mod frames {
             m.step();
         }
         png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/intro.png"), 6);
-        png::write(&art::mark_canvas(48, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5)), &format!("{dir}/mark48.png"), 6);
-        png::write(&art::mark_canvas(12, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5)), &format!("{dir}/mark12.png"), 24);
-        png::write(&art::mark_canvas(20, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5)), &format!("{dir}/mark20.png"), 16);
         let mut m = fighting();
         m.banner = Some(("NOTICE POSTED: HIT HIM".into(), 30));
         png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/notice.png"), 6);

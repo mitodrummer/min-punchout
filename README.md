@@ -1,4 +1,4 @@
-# punchout
+# min punchout
 
 Feel prototype for the Minimal Punch-Out terminal fighter. You are Minimal,
 seen from behind at the bottom of the ring. Each opponent on the card fails one
@@ -17,7 +17,7 @@ card, easiest first:
 | 7 | Chainguard, "The Base Image" | supply chain, image only: zero CVEs in the base, your build is on its own | Enterprise Quote: a briefcase to the face, dodge it. Proves: WHOLE CHAIN |
 | 8 | Nix, "The Purist" | reproducible if you pin; nobody pins | Derivation: you will not see it coming. Proves: IMPURE |
 
-The game opens on the card: all eight in ladder order, the next one up
+The game opens on a title screen, then the card: all eight in ladder order, the next one up
 flashing, beaten ones stamped KO, the rest in silhouette. Win and the card
 comes back with the next slot lit. The point of this build is to answer one
 question: do the stamina numbers make patience win and mashing lose?

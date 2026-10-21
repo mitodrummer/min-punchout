@@ -10,6 +10,7 @@ use ratatui::Frame;
 
 use crate::art;
 use crate::pixel::{Canvas, Rgb};
+use crate::render::LOGO;
 use crate::sim::{Fighter, OpponentSpec};
 
 /// Logical board size at scale 1. Four tiles across, two rows down.
@@ -77,8 +78,8 @@ impl Board {
 pub fn draw(f: &mut Frame, b: &Board, specs: &[OpponentSpec]) {
     let area = f.area();
     let rows = Layout::vertical([
-        Constraint::Length(3), // title, three rows so the mark fits beside it
-        Constraint::Min(34),   // tiles
+        Constraint::Length(1), // title
+        Constraint::Min(36),   // tiles
         Constraint::Length(1), // status
         Constraint::Length(1), // hints
     ])
@@ -87,7 +88,9 @@ pub fn draw(f: &mut Frame, b: &Board, specs: &[OpponentSpec]) {
     // Every win proves one thing in Minimal's voice; the title keeps score.
     let proved: Vec<&str> = specs.iter().zip(&b.defeated).filter(|(_, d)| **d).map(|(s, _)| s.special_line).collect();
     let mut spans = vec![
-        Span::styled("MINIMAL PUNCH-OUT", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(LOGO, Style::new().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::raw("   "),
+        Span::styled("MIN PUNCHOUT", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::raw("   "),
         Span::styled("THE CARD", Style::new().fg(Color::White)),
     ];
@@ -96,14 +99,7 @@ pub fn draw(f: &mut Frame, b: &Board, specs: &[OpponentSpec]) {
         spans.push(Span::styled(proved.join(" / "), Style::new().fg(Color::Rgb(61, 220, 151)).add_modifier(Modifier::BOLD)));
     }
     let title = Line::from(spans);
-    // Mark on the left, title text on the middle row, the pair centred.
-    let tw = title.width() as u16;
-    let total = tw + 14;
-    let x0 = rows[0].x + rows[0].width.saturating_sub(total) / 2;
-    let mark = art::mark_canvas(12, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5));
-    mark.flush(f.buffer_mut(), Rect { x: x0, y: rows[0].y, width: 12, height: 3 }, 1);
-    let text_area = Rect { x: x0 + 14, y: rows[0].y + 1, width: tw.min(rows[0].width.saturating_sub(14)), height: 1 };
-    f.render_widget(Paragraph::new(title), text_area);
+    f.render_widget(Paragraph::new(title).alignment(Alignment::Center), rows[0]);
 
     let tiles = rows[1];
     let scale = ((tiles.width as i32 / BOARD_W).min(tiles.height as i32 * 2 / BOARD_H)).max(1);
@@ -153,6 +149,80 @@ pub fn draw(f: &mut Frame, b: &Board, specs: &[OpponentSpec]) {
     f.render_widget(Paragraph::new(status).alignment(Alignment::Center), rows[2]);
     let hints = if b.unlocked > 1 { "[enter] fight   [a] [d] pick   [q] quit" } else { "[enter] fight   [q] quit" };
     f.render_widget(Paragraph::new(hints).dim().alignment(Alignment::Center), rows[3]);
+}
+
+/// The title screen: wordmark, MIN PUNCHOUT in big pixel letters, Minimal
+/// alone in the ring, and a flashing prompt.
+pub fn draw_title(f: &mut Frame, tick: u64) {
+    let area = f.area();
+    let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(30), Constraint::Length(1)]).split(area);
+    let top = Line::from(Span::styled(LOGO, Style::new().fg(Color::White).add_modifier(Modifier::BOLD)));
+    f.render_widget(Paragraph::new(top).alignment(Alignment::Center), rows[0]);
+
+    let ring = rows[1];
+    let scale = ((ring.width as i32 / BOARD_W).min(ring.height as i32 * 2 / BOARD_H)).max(1);
+    let w = (ring.width as i32 / scale).max(BOARD_W);
+    let h = (ring.height as i32 * 2 / scale).max(BOARD_H);
+    paint_title(w, h, tick).flush(f.buffer_mut(), ring, scale);
+
+    let hint = if (tick / 15) % 2 == 0 { "PRESS ENTER" } else { "" };
+    f.render_widget(Paragraph::new(hint).bold().yellow().alignment(Alignment::Center), rows[2]);
+}
+
+pub fn paint_title(w: i32, h: i32, tick: u64) -> Canvas {
+    let mut c = Canvas::new(w, h, BG);
+    let cx = w / 2;
+    // Crowd and ring, the same stage the fights happen on.
+    for y in 0..18 {
+        for x in 0..w {
+            let n = (x * 7919 + y * 104729) % 23;
+            if n < 4 {
+                c.put(x, y, BG.mix(Rgb::hex(0x8a7fb0), 0.25 + (n as f32) * 0.1));
+            }
+        }
+    }
+    c.rect(0, 18, w, h - 18, Rgb::hex(0xd9dde6));
+    for y in (24..h).step_by(6) {
+        c.rect(0, y, w, 1, Rgb::hex(0xb9bfcc));
+    }
+    for (i, col) in [Rgb::hex(0xe63946), WHITE, Rgb::hex(0x457bd9)].iter().enumerate() {
+        c.rect(0, 46 + i as i32 * 6, w, 2, *col);
+    }
+    // The title, two lines of pixel letters with a drop shadow.
+    let shadow = Rgb::hex(0x14141c);
+    let (s1, s2) = (4, 2);
+    let w1 = Canvas::text_width("MIN", s1);
+    let w2 = Canvas::text_width("PUNCHOUT", s2);
+    let x1 = cx - w1 / 2;
+    let x2 = cx - w2 / 2;
+    let y1 = 4;
+    let y2 = y1 + 5 * s1 + 4;
+    let bw = w2.max(w1) + 12;
+    c.rect(cx - bw / 2, y1 - 3, bw, (y2 + 5 * s2 + 3) - (y1 - 3), shadow);
+    let col = [YELLOW, WHITE, Rgb::hex(0x3ddc97), Rgb::hex(0xff5ad1)][((tick / 8) % 4) as usize];
+    c.text(x1 + 2, y1 + 2, "MIN", s1, Rgb::hex(0x3a3550));
+    c.text(x1, y1, "MIN", s1, col);
+    c.text(x2 + 2, y2 + 2, "PUNCHOUT", s2, Rgb::hex(0x3a3550));
+    c.text(x2, y2, "PUNCHOUT", s2, WHITE);
+    // Minimal in the ring, from behind, shadow-boxing.
+    let bob = ((tick / 6) % 2) as i32;
+    let jab = (tick / 20) % 2 == 0;
+    let pose = art::Pose {
+        body_dx: 0,
+        body_dy: bob,
+        head_dx: 0,
+        head_dy: bob,
+        face: art::Face::Normal,
+        left: if jab { art::Glove(2, 4, 0.9) } else { art::Glove(3, 9 + bob, 1.0) },
+        right: if jab { art::Glove(21, 9 + bob, 1.0) } else { art::Glove(22, 4, 0.9) },
+        prop: None,
+    };
+    art::draw_player(&mut c, cx - 12, h - 30, &art::MINIMAL, &pose);
+    let sub = "8 FIGHTS. 1 SANDBOX.";
+    let sw = Canvas::text_width(sub, 1);
+    c.rect(cx - sw / 2 - 3, h - 12, sw + 6, 9, shadow);
+    c.text(cx - sw / 2, h - 10, sub, 1, WHITE);
+    c
 }
 
 fn tile_at(i: usize, ox: i32, oy: i32) -> (i32, i32) {
@@ -289,5 +359,31 @@ mod tests {
         b.beat(2);
         b.tick = 6;
         crate::pixel::png::write(&paint(&b, &specs, BOARD_W, BOARD_H).0, &format!("{dir}/board_mid.png"), 6);
+    }
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    #[test]
+    fn title_screen_renders_and_dumps() {
+        let mut t = Terminal::new(TestBackend::new(100, 40)).unwrap();
+        t.draw(|f| draw_title(f, 3)).unwrap();
+        let buf = t.backend().buffer().clone();
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        assert!(out.contains("M I N I M A L"));
+        assert!(out.contains("PRESS ENTER"));
+        if let Ok(dir) = std::env::var("PUNCHOUT_FRAMES") {
+            crate::pixel::png::write(&paint_title(BOARD_W, 76, 3), &format!("{dir}/title.png"), 6);
+        }
     }
 }
