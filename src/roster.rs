@@ -74,15 +74,15 @@ pub fn codespaces() -> OpponentSpec {
         special_every: 20 * TICK_HZ,
         special_name: "STOPPED DUE TO INACTIVITY",
         special_short: "IDLE",
-        special_line: "RESUMING...",
+        special_line: "PINNED",
         taunts: [
-            "You've used 60 core hours this month.",
+            "Rebuilding container... this may take several minutes.",
+            "It worked yesterday. Different packages today.",
             "Billing starts the moment I stand up.",
-            "Prebuild finished. Probably.",
         ],
-        ko_line: "Your codespace has been stopped due to inactivity.",
-        lose_line: "That round will appear on your next invoice.",
-        ..base(OppId::Codespaces, "Codespaces", "The Minute Counter", 1)
+        ko_line: "Container rebuilt. Results may vary.",
+        lose_line: "Your environment has been reset. Again.",
+        ..base(OppId::Codespaces, "Codespaces", "The Rebuild", 1)
     }
 }
 
@@ -108,15 +108,15 @@ pub fn docker() -> OpponentSpec {
         special_every: 14 * TICK_HZ,
         special_name: "RATE LIMIT",
         special_short: "RATE",
-        special_line: "429: RETRY AFTER 6S",
+        special_line: "HERMETIC",
         taunts: [
-            "Please update Docker Desktop to continue.",
-            "This round requires a Business subscription.",
-            "Pulling... 4.2 GB... please wait.",
+            "FROM ubuntu:latest. Whatever that is today.",
+            "We share a kernel. Hope you don't mind.",
+            "Pulling 4.2 GB of someone else's decisions.",
         ],
-        ko_line: "This fight required a Business subscription.",
-        lose_line: "Your free pulls have been exhausted.",
-        ..base(OppId::Docker, "Docker", "The Desktop", 2)
+        ko_line: "Image digest changed since you last looked.",
+        lose_line: "Running as root inside your own machine.",
+        ..base(OppId::Docker, "Docker", "The Latest Tag", 2)
     }
 }
 
@@ -142,15 +142,15 @@ pub fn snyk() -> OpponentSpec {
         special_every: 12 * TICK_HZ,
         special_name: "TRANSITIVE DEP",
         special_short: "DEP",
-        special_line: "FALSE POSITIVE",
+        special_line: "ATTESTED",
         taunts: [
+            "1,400 issues found. In the thing you already shipped.",
             "Critical! Critical! Critical! (ok, that one's medium)",
-            "1,400 issues found. Mostly in dev dependencies.",
-            "Severity: high. Exploitability: none.",
+            "We don't stop anything. We just tell you later.",
         ],
-        ko_line: "Severity of this loss: High. Fix available: no.",
-        lose_line: "Your defeat has been added to the dashboard.",
-        ..base(OppId::Snyk, "Snyk", "The Scanner", 3)
+        ko_line: "Issue closed: fighter not present in SBOM.",
+        lose_line: "Scan complete. Too late.",
+        ..base(OppId::Snyk, "Snyk", "The Afterthought", 3)
     }
 }
 
@@ -176,15 +176,15 @@ pub fn bitnami() -> OpponentSpec {
         special_every: 12 * TICK_HZ,
         special_name: "DEPRECATION NOTICE",
         special_short: "REVOKE",
-        special_line: "MOVED TO LEGACY",
+        special_line: "SOURCE PINNED",
         taunts: [
-            "Your images will be removed on the 28th.",
+            "Built from source. Somewhere. By someone.",
             "This fighter is now part of the Broadcom portfolio.",
             "The free tier has been... adjusted.",
         ],
-        ko_line: "This fighter has been moved to the legacy catalog.",
+        ko_line: "No build attestation found for this fighter.",
         lose_line: "Access to this ring now requires a subscription.",
-        ..base(OppId::Bitnami, "Bitnami", "The Broadcom", 4)
+        ..base(OppId::Bitnami, "Bitnami", "The Provenance", 4)
     }
 }
 
@@ -211,15 +211,15 @@ pub fn devbox() -> OpponentSpec {
         special_every: 10 * TICK_HZ,
         special_name: "REBRAND",
         special_short: "REBRAND",
-        special_line: "SAME PRODUCT, NEW LOGO",
+        special_line: "ISOLATED",
         taunts: [
-            "We're basically Flox but we got there first!",
+            "I run on your machine. Right next to your SSH keys.",
             "It's Nix, but you don't have to know that.",
             "Have you heard about our new name?",
         ],
-        ko_line: "We'll be back under a new name.",
+        ko_line: "Isolation level: shared bathroom.",
         lose_line: "Please update your bookmarks.",
-        ..base(OppId::Devbox, "Devbox", "The Jetifier", 5)
+        ..base(OppId::Devbox, "Devbox", "The Houseguest", 5)
     }
 }
 
@@ -249,15 +249,15 @@ pub fn flox() -> OpponentSpec {
         special_every: 16 * TICK_HZ,
         special_name: "FLAKE CHECK",
         special_short: "FLAKE",
-        special_line: "EVALUATED. SAME RESULT.",
+        special_line: "SAME VM. EVERY TIME.",
         taunts: [
-            "It's just Nix, but friendly!",
-            "Same combo. Same result. That's the point.",
+            "Reproducible. On top of whatever your laptop is.",
+            "Same combo. Same result. Different kernel.",
             "Evaluating... please hold.",
         ],
-        ko_line: "That... should have worked on my machine.",
-        lose_line: "Reproduced, as expected.",
-        ..base(OppId::Flox, "Flox", "The Reproducer", 6)
+        ko_line: "Reproduced the bug. Perfectly. Every time.",
+        lose_line: "Works on your machine. Only on your machine.",
+        ..base(OppId::Flox, "Flox", "The Asterisk", 6)
     }
 }
 
@@ -282,15 +282,15 @@ pub fn chainguard() -> OpponentSpec {
         special_every: 15 * TICK_HZ,
         special_name: "ENTERPRISE QUOTE",
         special_short: "QUOTE",
-        special_line: "QUOTE DECLINED",
+        special_line: "WHOLE CHAIN",
         taunts: [
-            "Zero CVEs. Zero free tier. Zero chance.",
-            "Our guard is SLSA level 3.",
+            "Zero CVEs in the image. Four hundred in your node_modules.",
+            "Our guard is SLSA level 3. Your laptop is level whatever.",
             "Have you considered a multi-year commitment?",
         ],
-        ko_line: "Would you like to schedule a call to discuss your defeat?",
+        ko_line: "Secure runtime. Unsecured everything before it.",
         lose_line: "We'll follow up with a revised quote.",
-        ..base(OppId::Chainguard, "Chainguard", "The Zero Day", 7)
+        ..base(OppId::Chainguard, "Chainguard", "The Base Image", 7)
     }
 }
 
@@ -319,9 +319,9 @@ pub fn nix() -> OpponentSpec {
         special_short: "DERIVE",
         special_line: "IMPURE",
         taunts: [
-            "Have you considered writing it as a function?",
+            "Reproducible. If you pin. Nobody pins.",
+            "--impure is right there. Everyone uses it.",
             "The documentation is wrong. The code is the documentation.",
-            "This fight is reproducible. You lose every time.",
         ],
         ko_line: "Skill issue.",
         lose_line: "Garbage collected.",

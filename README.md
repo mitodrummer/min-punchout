@@ -1,18 +1,21 @@
 # punchout
 
 Feel prototype for the Minimal Punch-Out terminal fighter. You are Minimal,
-seen from behind at the bottom of the ring. The card, easiest first:
+seen from behind at the bottom of the ring. Each opponent on the card fails one
+of the four things Minimal is for: isolation, reproducibility, supply chain,
+hermetic builds. Beat them and the card keeps score of what you proved. The
+card, easiest first:
 
 | # | Opponent | Trait | Signature move |
 |---|---|---|---|
-| 1 | Codespaces, "The Minute Counter" | spends the opening prebuilding, fades as the core hours burn | Stopped Due To Inactivity: stands still for 3 s |
-| 2 | Docker, "The Desktop" | huge, slow, hits hard | Rate Limit: six quick jabs, then nothing for 6 s |
-| 3 | Snyk, "The Scanner" | tiny jabs, hundreds of them, every one labelled CRITICAL | Transitive Dep: a punch from a glove you never saw |
-| 4 | Bitnami, "The Broadcom" | ordinary fighter with an unfair contract | Deprecation Notice: posts a notice, then heals back the last 5 s of your damage. Hit him while it is posted to cancel it |
-| 5 | Devbox, "The Jetifier" | thin, fast, dodges everything | Rebrand: slips away and comes back under a new name |
-| 6 | Flox, "The Reproducer" | the exact same combo every time | Flake Check: evaluates for 5 s, free hits |
-| 7 | Chainguard, "The Zero Day" | blocks 90% of everything | Enterprise Quote: a briefcase to the face, dodge it |
-| 8 | Nix, "The Purist" | boss; hits like a truck with almost no tell | Derivation: you will not see it coming |
+| 1 | Codespaces, "The Rebuild" | reproducibility: a devcontainer that is different every rebuild | Stopped Due To Inactivity: stands still for 3 s. Proves: PINNED |
+| 2 | Docker, "The Latest Tag" | isolation and hermetic builds: shares your kernel, FROM ubuntu:latest | Rate Limit: six quick jabs, then nothing for 6 s. Proves: HERMETIC |
+| 3 | Snyk, "The Afterthought" | supply chain: finds it after you shipped it | Transitive Dep: a punch from a glove you never saw. Proves: ATTESTED |
+| 4 | Bitnami, "The Provenance" | supply chain: built somewhere, by someone | Deprecation Notice: posts a notice, then heals back the last 5 s of your damage. Hit him while it is posted to cancel it. Proves: SOURCE PINNED |
+| 5 | Devbox, "The Houseguest" | isolation: runs on your host, next to your keys | Rebrand: slips away and comes back under a new name. Proves: ISOLATED |
+| 6 | Flox, "The Asterisk" | reproducible, on top of whatever your laptop is | Flake Check: evaluates for 5 s, free hits. Proves: SAME VM. EVERY TIME. |
+| 7 | Chainguard, "The Base Image" | supply chain, image only: zero CVEs in the base, your build is on its own | Enterprise Quote: a briefcase to the face, dodge it. Proves: WHOLE CHAIN |
+| 8 | Nix, "The Purist" | reproducible if you pin; nobody pins | Derivation: you will not see it coming. Proves: IMPURE |
 
 The game opens on the card: all eight in ladder order, the next one up
 flashing, beaten ones stamped KO, the rest in silhouette. Win and the card

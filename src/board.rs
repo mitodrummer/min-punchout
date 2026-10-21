@@ -84,11 +84,18 @@ pub fn draw(f: &mut Frame, b: &Board, specs: &[OpponentSpec]) {
     ])
     .split(area);
 
-    let title = Line::from(vec![
+    // Every win proves one thing in Minimal's voice; the title keeps score.
+    let proved: Vec<&str> = specs.iter().zip(&b.defeated).filter(|(_, d)| **d).map(|(s, _)| s.special_line).collect();
+    let mut spans = vec![
         Span::styled("MINIMAL PUNCH-OUT", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::raw("   "),
         Span::styled("THE CARD", Style::new().fg(Color::White)),
-    ]);
+    ];
+    if !proved.is_empty() {
+        spans.push(Span::styled("   PROVED: ", Style::new().fg(Color::Gray)));
+        spans.push(Span::styled(proved.join(" / "), Style::new().fg(Color::Rgb(61, 220, 151)).add_modifier(Modifier::BOLD)));
+    }
+    let title = Line::from(spans);
     f.render_widget(Paragraph::new(title).alignment(Alignment::Center), rows[0]);
 
     let tiles = rows[1];

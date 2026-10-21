@@ -415,7 +415,7 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
         c.text(x, y, &txt, 1, color);
     }
     if let Some((won, el)) = over {
-        celebrate(&mut c, won, el, w, h);
+        celebrate(&mut c, won, el, w, h, m.spec.special_line);
     }
     if let Some((s, _)) = &m.banner {
         banner_box(&mut c, s, &m.phase, w, h);
@@ -445,7 +445,7 @@ fn banner_box(c: &mut Canvas, s: &str, phase: &Phase, w: i32, h: i32) {
     let bw = lines.iter().map(|l| Canvas::text_width(l, 1)).max().unwrap_or(0) + 8;
     let bh = lines.len() as i32 * 7 + 5;
     let y = match phase {
-        Phase::Over { .. } => h - bh - 4,
+        Phase::Over { .. } => h - bh - 2,
         Phase::Fighting => 2,
         _ => h / 2 - bh / 2,
     };
@@ -460,7 +460,7 @@ fn banner_box(c: &mut Canvas, s: &str, phase: &Phase, w: i32, h: i32) {
 
 /// The KO moment: a flash, the letters slamming in, then confetti and a
 /// colour-cycling YOU WIN. A loss gets the slam and a grey YOU LOSE.
-fn celebrate(c: &mut Canvas, won: bool, el: u64, w: i32, h: i32) {
+fn celebrate(c: &mut Canvas, won: bool, el: u64, w: i32, h: i32, proved: &str) {
     let cx = w / 2;
     if el < 6 && el % 2 == 0 {
         c.rect(0, 0, w, h, if won { WHITE } else { RED });
@@ -503,6 +503,13 @@ fn celebrate(c: &mut Canvas, won: bool, el: u64, w: i32, h: i32) {
     c.rect(x - 4, y - 3, tw + 8, 5 * scale + 6, shadow);
     c.text(x + 1, y + 1, word, scale, Rgb::hex(0x3a3550));
     c.text(x, y, word, scale, col);
+    if won && el >= 50 {
+        // What this fight proved, in Minimal's voice, under the headline.
+        let pw = Canvas::text_width(proved, 1);
+        let px = cx - pw / 2;
+        c.rect(px - 3, y + 5 * scale + 4, pw + 6, 9, shadow);
+        c.text(px, y + 5 * scale + 6, proved, 1, Rgb::hex(0x3ddc97));
+    }
 }
 
 /// Text overlays on top of the pixels: debug log and the round/KO banner.
@@ -693,7 +700,7 @@ mod frames {
         for (name, won) in [("ko_win", true), ("ko_lose", false)] {
             let mut m = fighting();
             if won { m.opp.health = 0.0 } else { m.player.health = 0.0 }
-            for _ in 0..45 {
+            for _ in 0..60 {
                 m.step();
             }
             png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/{name}.png"), 6);
