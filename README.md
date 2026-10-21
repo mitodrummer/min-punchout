@@ -39,7 +39,7 @@ scales up in integer steps as the window grows, so a 200x80 window gets 2x pixel
 
 | Key | Action |
 |---|---|
-| `enter` | on the card: fight the lit opponent. After a fight: back to the card |
+| `enter` | title screen: start. On the card: fight the lit opponent. After a fight: back to the card |
 | `a` / `d` | on the card: pick among the unlocked opponents (rematches allowed) |
 | `j` | jab (fast, low damage, interrupts a heavy punch early in its wind-up) |
 | `k` | hook |
@@ -69,6 +69,7 @@ corners, and with hints on the footer names the right answer.
 
 A press made while your last move is still finishing is held for a quarter
 second and fires the moment you are free, so mashing does not eat inputs.
+Rounds are 35 seconds, three of them, with a breather between.
 Every action costs stamina. Stamina only comes back after you have been idle
 for a third of a second, and comes back at half speed once you have run dry.
 Below the floor you cannot block or dodge and any hit staggers you. A dodge
