@@ -53,7 +53,10 @@ Every punch has a wind-up pose. While the punch is still far off the
 opponent turns yellow and a fuse bar fills under the sponsor banner: wait.
 He flashes red exactly when a dodge or block pressed now will still be up
 when the punch lands, so red means press. The punch lands when the fuse is
-full. Jabs are quick enough that they flash red at once. Hooks
+full, and the last stretch of the fuse track is drawn dark red: that is the
+press zone. While the fill is inside it the word DODGE (or BLOCK, for a jab)
+flashes over his chest. Press at any point while it shows; you do not need
+to wait for the fuse to fill. Jabs are quick enough that they flash at once. Hooks
 pull the glove far out to one side, uppercuts crouch with both gloves low,
 jabs cock one glove up by the ear. The punch name sits in both bottom
 corners, and with hints on the footer names the right answer.

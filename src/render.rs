@@ -274,8 +274,22 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
         let color = if cue { RED } else { YELLOW };
         // Fuse directly under the banner, where the eye already is.
         let bw = tw + 24;
+        let total = m.opp.startup_ticks(a).max(1) as f32;
+        // The last stretch of the track is the press zone: once the fill
+        // enters it, a dodge or block pressed now catches the punch.
+        let zone = ((crate::sim::CUE_LEAD as f32 / total).min(1.0) * bw as f32) as i32;
         c.rect(cx - bw / 2 - 1, 16, bw + 2, 4, Rgb::hex(0x14141c));
+        c.rect(cx + bw / 2 - zone, 17, zone, 2, RED.darker(0.6));
         c.rect(cx - bw / 2, 17, (bw as f32 * p) as i32, 2, color);
+        if cue {
+            // Big, flashing, and on top of him: the answer to "now?".
+            let word = if a == Action::Jab { "BLOCK" } else { "DODGE" };
+            let ww = Canvas::text_width(word, 2);
+            let col = if (m.tick / 2) % 2 == 0 { RED } else { WHITE };
+            c.set_tint(None);
+            c.rect(cx - ww / 2 - 3, 32, ww + 6, 14, Rgb::hex(0x14141c));
+            c.text(cx - ww / 2, 34, word, 2, col);
+        }
         // Punch name in both bottom corners, clear of both fighters.
         let label = match a {
             Action::Special => m.spec.special_short,

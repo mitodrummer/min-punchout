@@ -65,6 +65,8 @@ pub const CUE_LEAD: u32 = PLAYER_DODGE_WINDOW - 2;
 pub const NOTICE_TICKS: u32 = 45;
 /// A press made while busy is held this long and fires when the player is free.
 pub const BUFFER_TICKS: u32 = 8;
+/// Shortest time a banner line stays up: 2.5 s.
+pub const BANNER_MIN: u32 = TICK_HZ * 5 / 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
@@ -597,7 +599,15 @@ impl Match {
         false
     }
 
+    /// Put a line on the banner. Anything shorter than BANNER_MIN is held
+    /// that long: a line nobody had time to read was not worth saying.
     fn say(&mut self, s: impl Into<String>, ticks: u32) {
+        let ticks = if ticks == u32::MAX { ticks } else { ticks.max(BANNER_MIN) };
+        self.banner = Some((s.into(), ticks));
+    }
+
+    /// A banner that really should go away quickly, like FIGHT.
+    fn say_brief(&mut self, s: impl Into<String>, ticks: u32) {
         self.banner = Some((s.into(), ticks));
     }
 
@@ -620,7 +630,7 @@ impl Match {
                 }
                 if t <= 1 {
                     self.phase = Phase::Fighting;
-                    self.say("FIGHT", TICK_HZ);
+                    self.say_brief("FIGHT", TICK_HZ);
                     if self.round == 1 && self.spec.prebuild > 0 {
                         // Codespaces spends the opening warming up.
                         self.opp.state = State::Stunned(self.spec.prebuild);
