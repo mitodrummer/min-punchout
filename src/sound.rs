@@ -275,7 +275,11 @@ struct Song {
 }
 
 // Pitches, semitones from A4.
+const D2: i32 = -31;
 const A2: i32 = -24;
+const D3: i32 = -19;
+const CS4: i32 = -8;
+const CS5: i32 = 4;
 const C3: i32 = -21;
 const F3: i32 = -16;
 const G3: i32 = -14;
@@ -298,11 +302,6 @@ const E2: i32 = -29;
 const F2: i32 = -28;
 const G2: i32 = -26;
 const C6: i32 = 15;
-const D6: i32 = 17;
-const E6: i32 = 19;
-const EB2: i32 = -30;
-const EB3: i32 = -18;
-const EB5: i32 = 6;
 const BB2: i32 = -23;
 const BB3: i32 = -11;
 const BB4: i32 = 1;
@@ -345,40 +344,40 @@ const FIGHT_SONG: Song = Song {
             K.h.S.h.K.hKS.hhK.h.S.h.K.hKS.hhK.h.S.h.K.hKS.hhK.h.S.h.K.hKS...",
 };
 
-/// Card theme, in the spirit of a 16-bit fighter's select screen: fast, an
-/// octave-pumping syncopated bass, a bright staccato lead that leaps, an
-/// arpeggio under it and hats on every eighth. F mixolydian, F Eb Bb C.
+/// Card theme: the select-screen groove, in D minor. The same pumping
+/// bass and staccato lead, over Dm, Bb, C and an A major that pulls it
+/// back down. Dark, not sad.
 const CARD_SONG: Song = Song {
     bpm: 150.0,
     lead: &[
-        (F5, 1), (R, 1), (A5, 1), (R, 1), (C6, 2), (A5, 2), (F5, 2), (G5, 2), (A5, 4),
-        (EB5, 1), (R, 1), (G5, 1), (R, 1), (BB5, 2), (G5, 2), (EB5, 2), (F5, 2), (G5, 4),
-        (BB5, 2), (A5, 2), (G5, 2), (F5, 2), (D5, 2), (F5, 2), (G5, 4),
-        (C6, 2), (BB5, 2), (A5, 2), (G5, 2), (A5, 2), (BB5, 2), (C6, 2), (R, 2),
-        (F5, 1), (R, 1), (A5, 1), (R, 1), (C6, 2), (A5, 2), (F5, 2), (G5, 2), (A5, 4),
-        (EB5, 1), (R, 1), (G5, 1), (R, 1), (BB5, 2), (G5, 2), (EB5, 2), (F5, 2), (G5, 4),
-        (BB5, 2), (A5, 2), (G5, 2), (F5, 2), (D5, 2), (F5, 2), (G5, 4),
-        (E5, 2), (G5, 2), (C6, 2), (G5, 2), (C6, 2), (D6, 2), (E6, 2), (R, 2),
+        (D5, 1), (R, 1), (F5, 1), (R, 1), (A5, 2), (F5, 2), (D5, 2), (E5, 2), (F5, 4),
+        (D5, 1), (R, 1), (F5, 1), (R, 1), (BB5, 2), (A5, 2), (F5, 2), (D5, 2), (F5, 4),
+        (E5, 2), (G5, 2), (C6, 2), (G5, 2), (E5, 2), (D5, 2), (C5, 4),
+        (CS5, 2), (E5, 2), (A5, 2), (E5, 2), (CS5, 2), (D5, 2), (E5, 2), (R, 2),
+        (D5, 1), (R, 1), (F5, 1), (R, 1), (A5, 2), (F5, 2), (D5, 2), (E5, 2), (F5, 4),
+        (D5, 1), (R, 1), (F5, 1), (R, 1), (BB5, 2), (A5, 2), (F5, 2), (D5, 2), (F5, 4),
+        (G5, 2), (A5, 2), (BB5, 2), (A5, 2), (G5, 2), (F5, 2), (E5, 4),
+        (A5, 2), (G5, 2), (F5, 2), (E5, 2), (D5, 2), (CS5, 2), (D5, 2), (R, 2),
     ],
     harm: &[
-        (A4, 2), (C5, 2), (F5, 2), (C5, 2), (A4, 2), (C5, 2), (F5, 2), (C5, 2),
-        (G4, 2), (BB4, 2), (EB5, 2), (BB4, 2), (G4, 2), (BB4, 2), (EB5, 2), (BB4, 2),
-        (F4, 2), (BB4, 2), (D5, 2), (BB4, 2), (F4, 2), (BB4, 2), (D5, 2), (BB4, 2),
+        (D4, 2), (F4, 2), (A4, 2), (F4, 2), (D4, 2), (F4, 2), (A4, 2), (F4, 2),
+        (D4, 2), (F4, 2), (BB4, 2), (F4, 2), (D4, 2), (F4, 2), (BB4, 2), (F4, 2),
         (E4, 2), (G4, 2), (C5, 2), (G4, 2), (E4, 2), (G4, 2), (C5, 2), (G4, 2),
-        (A4, 2), (C5, 2), (F5, 2), (C5, 2), (A4, 2), (C5, 2), (F5, 2), (C5, 2),
-        (G4, 2), (BB4, 2), (EB5, 2), (BB4, 2), (G4, 2), (BB4, 2), (EB5, 2), (BB4, 2),
-        (F4, 2), (BB4, 2), (D5, 2), (BB4, 2), (F4, 2), (BB4, 2), (D5, 2), (BB4, 2),
+        (CS4, 2), (E4, 2), (A4, 2), (E4, 2), (CS4, 2), (E4, 2), (A4, 2), (E4, 2),
+        (D4, 2), (F4, 2), (A4, 2), (F4, 2), (D4, 2), (F4, 2), (A4, 2), (F4, 2),
+        (D4, 2), (F4, 2), (BB4, 2), (F4, 2), (D4, 2), (F4, 2), (BB4, 2), (F4, 2),
         (E4, 2), (G4, 2), (C5, 2), (G4, 2), (E4, 2), (G4, 2), (C5, 2), (G4, 2),
+        (CS4, 2), (E4, 2), (A4, 2), (E4, 2), (CS4, 2), (E4, 2), (A4, 2), (E4, 2),
     ],
     bass: &[
-        (F2, 2), (F3, 1), (R, 1), (F2, 2), (F3, 2), (F2, 2), (F3, 1), (R, 1), (C3, 2), (F3, 2),
-        (EB2, 2), (EB3, 1), (R, 1), (EB2, 2), (EB3, 2), (EB2, 2), (EB3, 1), (R, 1), (BB2, 2), (EB3, 2),
+        (D2, 2), (D3, 1), (R, 1), (D2, 2), (D3, 2), (D2, 2), (D3, 1), (R, 1), (A2, 2), (D3, 2),
         (BB2, 2), (BB3, 1), (R, 1), (BB2, 2), (BB3, 2), (BB2, 2), (BB3, 1), (R, 1), (F2, 2), (BB3, 2),
         (C3, 2), (C4, 1), (R, 1), (C3, 2), (C4, 2), (C3, 2), (C4, 1), (R, 1), (G2, 2), (C4, 2),
-        (F2, 2), (F3, 1), (R, 1), (F2, 2), (F3, 2), (F2, 2), (F3, 1), (R, 1), (C3, 2), (F3, 2),
-        (EB2, 2), (EB3, 1), (R, 1), (EB2, 2), (EB3, 2), (EB2, 2), (EB3, 1), (R, 1), (BB2, 2), (EB3, 2),
+        (A2, 2), (A3, 1), (R, 1), (A2, 2), (A3, 2), (A2, 2), (A3, 1), (R, 1), (E2, 2), (A3, 2),
+        (D2, 2), (D3, 1), (R, 1), (D2, 2), (D3, 2), (D2, 2), (D3, 1), (R, 1), (A2, 2), (D3, 2),
         (BB2, 2), (BB3, 1), (R, 1), (BB2, 2), (BB3, 2), (BB2, 2), (BB3, 1), (R, 1), (F2, 2), (BB3, 2),
         (C3, 2), (C4, 1), (R, 1), (C3, 2), (C4, 2), (C3, 2), (C4, 1), (R, 1), (G2, 2), (C4, 2),
+        (A2, 2), (A3, 1), (R, 1), (A2, 2), (A3, 2), (A2, 2), (A3, 1), (R, 1), (E2, 2), (A3, 2),
     ],
     drums: "KhhhShhhKhhhShhhKhhhShhhKhhhShhhKhhhShhhKhhhShhhKhhhShhhKhhhSSSS\
             KhhhShhhKhhhShhhKhhhShhhKhhhShhhKhhhShhhKhhhShhhKhhhShhhKhKhS.SS",
