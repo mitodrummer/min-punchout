@@ -42,17 +42,15 @@ pub fn draw(f: &mut Frame, m: &Match, view: &View) {
         return;
     }
     let rows = Layout::vertical([
-        Constraint::Length(3), // bars
-        Constraint::Length(1), // header
-        Constraint::Min(35),   // ring
+        Constraint::Length(5), // bars: name, two-row HP, two-row stamina
+        Constraint::Min(34),   // ring
         Constraint::Length(1), // footer
     ])
     .split(area);
 
     draw_bars(f, rows[0], m);
-    draw_header(f, rows[1], m);
-    draw_ring(f, rows[2], m, view);
-    draw_footer(f, rows[3], m, view);
+    draw_ring(f, rows[1], m, view);
+    draw_footer(f, rows[2], m, view);
 }
 
 // ---------------------------------------------------------------- top strip
@@ -68,15 +66,15 @@ fn health_color(ratio: f64) -> Color {
 }
 
 fn fighter_bars(f: &mut Frame, area: Rect, fi: &Fighter, right: bool) {
-    // Minimal's bars carry the mark on their left, 12x6 pixels in 12x3 cells.
-    let area = if right || area.width < 30 {
+    // Minimal's bars carry the mark on their left, 20x10 pixels in 20x5 cells.
+    let area = if right || area.width < 40 {
         area
     } else {
-        let mark = art::mark_canvas(12, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5));
-        mark.flush(f.buffer_mut(), Rect { x: area.x, y: area.y, width: 12, height: 3.min(area.height) }, 1);
-        Rect { x: area.x + 14, y: area.y, width: area.width - 14, height: area.height }
+        let mark = art::mark_canvas(20, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5));
+        mark.flush(f.buffer_mut(), Rect { x: area.x, y: area.y, width: 20, height: 5.min(area.height) }, 1);
+        Rect { x: area.x + 22, y: area.y, width: area.width - 22, height: area.height }
     };
-    let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
+    let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(2), Constraint::Length(2)])
         .split(area);
     let mut spans = vec![Span::styled(fi.name.to_uppercase(), Style::new().bold())];
     if fi.exhausted() {
@@ -133,10 +131,6 @@ fn draw_bars(f: &mut Frame, area: Rect, m: &Match) {
     f.render_widget(Paragraph::new(clock).alignment(Alignment::Center), halves[1]);
 }
 
-fn draw_header(f: &mut Frame, area: Rect, m: &Match) {
-    let text = format!("MINIMAL  vs  {} \"{}\"", m.spec.name.to_uppercase(), m.spec.nickname);
-    f.render_widget(Paragraph::new(text).alignment(Alignment::Center).dim(), area);
-}
 
 // ---------------------------------------------------------------- ring
 
@@ -697,6 +691,7 @@ mod frames {
         png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/intro.png"), 6);
         png::write(&art::mark_canvas(48, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5)), &format!("{dir}/mark48.png"), 6);
         png::write(&art::mark_canvas(12, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5)), &format!("{dir}/mark12.png"), 24);
+        png::write(&art::mark_canvas(20, Rgb::hex(0x000000), Rgb::hex(0xe5e5e5)), &format!("{dir}/mark20.png"), 16);
         let mut m = fighting();
         m.banner = Some(("NOTICE POSTED: HIT HIM".into(), 30));
         png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/notice.png"), 6);
