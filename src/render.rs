@@ -6,7 +6,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Gauge, Paragraph};
+use ratatui::widgets::{Block, BorderType, Gauge, Paragraph};
 use ratatui::Frame;
 
 use crate::art;
@@ -68,29 +68,30 @@ fn health_color(ratio: f64) -> Color {
     }
 }
 
-fn fighter_bars(f: &mut Frame, area: Rect, fi: &Fighter, right: bool) {
-    let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(2), Constraint::Length(2)])
-        .split(area);
-    // Minimal's own name row is the wordmark.
+fn fighter_bars(f: &mut Frame, area: Rect, fi: &Fighter, right: bool, accent: Color) {
+    // A bordered box in the fighter's colour, name on the top edge, a
+    // two-row HP gauge and a stamina gauge inside.
     let name = if right { fi.name.to_uppercase() } else { LOGO.to_string() };
-    let mut spans = vec![Span::styled(name, Style::new().bold())];
+    let mut title = vec![Span::styled(format!(" {name} "), Style::new().fg(accent).add_modifier(Modifier::BOLD))];
     if fi.exhausted() {
-        spans.push(Span::raw("  EXHAUSTED").red().bold());
+        title.push(Span::styled(" EXHAUSTED ", Style::new().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
     }
     if fi.counter_window > 0 {
-        spans.push(Span::raw("  COUNTER!").magenta().bold());
+        title.push(Span::styled(" COUNTER! ", Style::new().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)));
     }
-    let title = Line::from(spans);
-    let title = if right { title.alignment(Alignment::Right) } else { title };
-    f.render_widget(Paragraph::new(title), rows[0]);
+    let mut block = Block::bordered().border_type(BorderType::Thick).border_style(Style::new().fg(accent)).title(Line::from(title));
+    if right {
+        block = block.title_alignment(Alignment::Right);
+    }
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let rows = Layout::vertical([Constraint::Length(2), Constraint::Length(1)]).split(inner);
 
     let hr = (fi.health / fi.max_health).clamp(0.0, 1.0) as f64;
+    let label = Span::styled(format!(" HP {:>3.0} / {:.0} ", fi.health, fi.max_health), Style::new().fg(Color::White).add_modifier(Modifier::BOLD));
     f.render_widget(
-        Gauge::default()
-            .gauge_style(Style::new().fg(health_color(hr)).bg(Color::Rgb(50, 50, 60)))
-            .ratio(hr)
-            .label(format!("HP {:>3.0}", fi.health)),
-        rows[1],
+        Gauge::default().gauge_style(Style::new().fg(health_color(hr)).bg(Color::Rgb(40, 40, 52))).ratio(hr).label(label),
+        rows[0],
     );
     let sr = (fi.stamina / MAX_STAMINA).clamp(0.0, 1.0) as f64;
     // Blue while you can afford a dodge, orange when one more punch would
@@ -102,13 +103,8 @@ fn fighter_bars(f: &mut Frame, area: Rect, fi: &Fighter, right: bool) {
     } else {
         Color::Rgb(70, 130, 240)
     };
-    f.render_widget(
-        Gauge::default()
-            .gauge_style(Style::new().fg(st_color).bg(Color::Rgb(50, 50, 60)))
-            .ratio(sr)
-            .label(format!("ST {:>3.0}", fi.stamina)),
-        rows[2],
-    );
+    let label = Span::styled(format!(" ST {:>3.0} ", fi.stamina), Style::new().fg(Color::White).add_modifier(Modifier::BOLD));
+    f.render_widget(Gauge::default().gauge_style(Style::new().fg(st_color).bg(Color::Rgb(40, 40, 52))).ratio(sr).label(label), rows[1]);
 }
 
 fn draw_bars(f: &mut Frame, area: Rect, m: &Match) {
@@ -118,8 +114,9 @@ fn draw_bars(f: &mut Frame, area: Rect, m: &Match) {
         Constraint::Percentage(42),
     ])
     .split(area);
-    fighter_bars(f, halves[0], &m.player, false);
-    fighter_bars(f, halves[2], &m.opp, true);
+    fighter_bars(f, halves[0], &m.player, false, Color::Rgb(46, 196, 182));
+    let b = art::look(m.spec.id).banner.mix(Rgb::hex(0xffffff), 0.35);
+    fighter_bars(f, halves[2], &m.opp, true, Color::Rgb(b.0, b.1, b.2));
     let secs = m.round_ticks_left / TICK_HZ;
     let clock = Text::from(vec![
         Line::from(format!("ROUND {}", m.round)).bold(),
@@ -297,7 +294,7 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
     // Signature-move status labels, top right of the ring.
     let mut status: Vec<(String, Rgb)> = Vec::new();
     if m.cooldown > 0 {
-        status.push((format!("RATE LIMITED: RETRY IN {}S", (m.cooldown + TICK_HZ - 1) / TICK_HZ), Rgb::hex(0x7fd3ff)));
+        status.push((format!("{} IS RATE LIMITED: FREE HITS {}S", m.spec.name.to_uppercase(), (m.cooldown + TICK_HZ - 1) / TICK_HZ), Rgb::hex(0x7fd3ff)));
     }
     if m.frozen > 0 {
         let label = if m.fought <= m.spec.prebuild + 1 { "PREBUILDING" } else { m.spec.special_name };
@@ -397,6 +394,8 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
         Some((Rgb::hex(0x14141c), 0.45))
     } else if m.player.hit_flash > 0 {
         Some((RED, 0.6))
+    } else if matches!(m.defended, Some((_, t)) if t > 12) {
+        Some((Rgb::hex(0x3ddc97), 0.5))
     } else if m.player.counter_window > 0 {
         Some((MAGENTA, 0.35))
     } else if matches!(m.player.state, State::Stunned(_)) {
@@ -430,6 +429,23 @@ pub fn paint_ring(m: &Match, w: i32, h: i32) -> Canvas {
         let tw = Canvas::text_width(&txt, 1);
         c.rect(x - 2, y - 2, tw + 4, 9, Rgb::hex(0x14141c));
         c.text(x, y, &txt, 1, color);
+    }
+    // A good block or dodge gets shouted, big, where the DODGE cue was.
+    if let (Some((kind, t)), None) = (m.defended, over) {
+        let (word, col) = match kind {
+            HitKind::Dodged => ("DODGED!", Rgb::hex(0x3ddc97)),
+            _ => ("BLOCKED!", Rgb::hex(0x7fd3ff)),
+        };
+        let ww = Canvas::text_width(word, 2);
+        let flash = if (t / 2) % 2 == 0 { col } else { WHITE };
+        c.rect(cx - ww / 2 - 3, 32, ww + 6, 14, Rgb::hex(0x14141c));
+        c.text(cx - ww / 2, 34, word, 2, flash);
+        if kind == HitKind::Dodged && m.player.counter_window > 0 {
+            let sub = "COUNTER: HIT NOW";
+            let sw = Canvas::text_width(sub, 1);
+            c.rect(cx - sw / 2 - 2, 46, sw + 4, 9, Rgb::hex(0x14141c));
+            c.text(cx - sw / 2, 48, sub, 1, MAGENTA);
+        }
     }
     if let Some((won, el)) = over {
         celebrate(&mut c, won, el, w, h, m.spec.special_line);
@@ -728,6 +744,11 @@ mod frames {
         m.self_hit = 10;
         m.events.push(crate::sim::HitEvent { by_player: false, action: Action::Hook, kind: HitKind::SelfHit, damage: 10.0 });
         png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/self_hit.png"), 6);
+        let mut m = fighting();
+        m.defended = Some((HitKind::Dodged, 16));
+        m.player.counter_window = 15;
+        m.opp.state = State::Recovery(Action::Hook, 6);
+        png::write(&paint_ring(&m, RING_W, RING_H), &format!("{dir}/defended.png"), 6);
         let _unused3: Vec<(&str, State, Option<Input>)> = vec![
         ];
         // The KO celebration, won and lost, a second in.

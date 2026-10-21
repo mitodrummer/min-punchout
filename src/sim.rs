@@ -59,7 +59,9 @@ pub const PLAYER_DODGE_COST: f32 = 3.0;
 
 pub const DODGE_WINDOW: u32 = 12;
 /// 600 ms and 533 ms. Human reaction plus terminal latency needs this much.
-pub const PLAYER_BLOCK_WINDOW: u32 = 18;
+/// 900 ms: long enough to put the guard up when you see yellow and still
+/// have it there when the punch arrives.
+pub const PLAYER_BLOCK_WINDOW: u32 = 27;
 pub const PLAYER_DODGE_WINDOW: u32 = 16;
 /// The "dodge now" cue: the opponent flashes red once a dodge started this
 /// tick is still live when the punch lands, with two ticks of slack for
@@ -539,6 +541,8 @@ pub struct Match {
     pub over_at: u64,
     /// Ticks left of the glove-in-own-face pose.
     pub self_hit: u32,
+    /// A successful block or dodge by the player, and ticks left to shout it.
+    pub defended: Option<(HitKind, u32)>,
     /// A held press: (input, ticks before it is forgotten).
     pub buffered: Option<(Input, u32)>,
     /// Fight ticks elapsed across rounds, for fatigue.
@@ -581,6 +585,7 @@ impl Match {
             notice: None,
             over_at: 0,
             self_hit: 0,
+            defended: None,
             buffered: None,
             fought: 0,
             dmg_log: Vec::new(),
@@ -691,6 +696,12 @@ impl Match {
         self.frozen = self.frozen.saturating_sub(1);
         self.rebrand = self.rebrand.saturating_sub(1);
         self.self_hit = self.self_hit.saturating_sub(1);
+        if let Some((_, t)) = &mut self.defended {
+            *t = t.saturating_sub(1);
+            if *t == 0 {
+                self.defended = None;
+            }
+        }
         if let Some((_, t)) = &mut self.revoked {
             *t = t.saturating_sub(1);
             if *t == 0 {
@@ -742,6 +753,9 @@ impl Match {
         }
         if let Some(a) = o_hit {
             let ev = resolve(&mut self.opp, &mut self.player, a, false);
+            if matches!(ev.kind, HitKind::Dodged | HitKind::Chip) {
+                self.defended = Some((ev.kind, 18));
+            }
             if a == Action::Special && ev.kind == HitKind::Dodged {
                 if let SpecialKind::BigPunch { stun_on_dodge } = self.spec.kind {
                     self.opp.state = State::Stunned(stun_on_dodge);

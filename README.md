@@ -9,7 +9,7 @@ card, easiest first:
 | # | Opponent | Trait | Signature move |
 |---|---|---|---|
 | 1 | Codespaces, "The Rebuild" | reproducibility: a devcontainer that is different every rebuild | Stopped Due To Inactivity: stands still for 3 s. Proves: PINNED |
-| 2 | Docker, "The Latest Tag" | isolation and hermetic builds: shares your kernel, FROM ubuntu:latest | Rate Limit: six quick jabs, then nothing for 6 s. Proves: HERMETIC |
+| 2 | Docker, "The Latest Tag" | isolation and hermetic builds: shares your kernel, FROM ubuntu:latest | Rate Limit: six quick jabs, then he is the one rate limited: 6 s of free hits. Proves: HERMETIC |
 | 3 | Snyk, "The Afterthought" | supply chain: finds it after you shipped it | Transitive Dep: a punch from a glove you never saw. Proves: ATTESTED |
 | 4 | Bitnami, "The Provenance" | supply chain: built somewhere, by someone | Deprecation Notice: posts a notice, then heals back the last 5 s of your damage. Hit him while it is posted to cancel it. Proves: SOURCE PINNED |
 | 5 | Devbox, "The Houseguest" | isolation: runs on your host, next to your keys | Rebrand: slips away and comes back under a new name. Proves: ISOLATED |
@@ -45,7 +45,7 @@ scales up in integer steps as the window grows, so a 200x80 window gets 2x pixel
 | `j` | jab (fast, low damage, interrupts a heavy punch early in its wind-up) |
 | `k` | hook |
 | `l` | uppercut (slow, long tell, breaks a block) |
-| `space` | block (tap, short window, chip damage from jabs and hooks) |
+| `space` | block (tap, guard stays up 0.9 s, chip damage from jabs and hooks, uppercuts break it) |
 | `a` / `d` | dodge (tap, shorter window, opens a double-damage counter) |
 | `h` | toggle the trainer hints in the footer |
 | `tab` | debug line and event log |
