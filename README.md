@@ -60,6 +60,8 @@ corners, and with hints on the footer names the right answer.
 
 ## Rules in one breath
 
+A press made while your last move is still finishing is held for a quarter
+second and fires the moment you are free, so mashing does not eat inputs.
 Every action costs stamina. Stamina only comes back after you have been idle
 for a third of a second, and comes back at half speed once you have run dry.
 Below the floor you cannot block or dodge and any hit staggers you. A dodge

@@ -90,9 +90,18 @@ fn fighter_bars(f: &mut Frame, area: Rect, fi: &Fighter, right: bool) {
         rows[1],
     );
     let sr = (fi.stamina / MAX_STAMINA).clamp(0.0, 1.0) as f64;
+    // Blue while you can afford a dodge, orange when one more punch would
+    // leave you unable to, red once you are there.
+    let st_color = if fi.exhausted() {
+        Color::Rgb(255, 59, 59)
+    } else if fi.stamina < 30.0 {
+        Color::Rgb(255, 150, 40)
+    } else {
+        Color::Rgb(70, 130, 240)
+    };
     f.render_widget(
         Gauge::default()
-            .gauge_style(Style::new().fg(Color::Rgb(70, 130, 240)).bg(Color::Rgb(50, 50, 60)))
+            .gauge_style(Style::new().fg(st_color).bg(Color::Rgb(50, 50, 60)))
             .ratio(sr)
             .label(format!("ST {:>3.0}", fi.stamina)),
         rows[2],
@@ -396,6 +405,9 @@ fn draw_footer(f: &mut Frame, area: Rect, m: &Match, view: &View) {
             Action::Uppercut => "UPPERCUT coming: dodge, do not block",
             Action::Special => "SIGNATURE MOVE: DODGE IT",
         }),
+        (true, None) if m.player.stamina < 20.0 && matches!(m.phase, Phase::Fighting) => {
+            Some("LOW STAMINA: stop punching and let it refill, or you cannot dodge")
+        }
         _ => None,
     };
     let text = if view.show_debug {

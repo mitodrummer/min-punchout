@@ -46,11 +46,11 @@ pub struct Move {
 pub const JAB: Move = Move { stamina: 8.0, damage: 6.0, startup: 3, recovery: 6 };
 pub const HOOK: Move = Move { stamina: 14.0, damage: 12.0, startup: 8, recovery: 10 };
 pub const UPPERCUT: Move = Move { stamina: 25.0, damage: 22.0, startup: 15, recovery: 18 };
-pub const BLOCK_COST: f32 = 6.0;
+pub const BLOCK_COST: f32 = 4.0;
 /// Opponent windows. The player gets the wider PLAYER_* ones below; giving
 /// the opponent longer blocks breaks the anti-masher balance.
 pub const BLOCK_WINDOW: u32 = 15;
-pub const DODGE_COST: f32 = 10.0;
+pub const DODGE_COST: f32 = 6.0;
 
 pub const DODGE_WINDOW: u32 = 12;
 /// 600 ms and 533 ms. Human reaction plus terminal latency needs this much.
@@ -63,6 +63,8 @@ pub const CUE_LEAD: u32 = PLAYER_DODGE_WINDOW - 2;
 /// Bitnami's Deprecation Notice is posted this long before it takes effect.
 /// Land any punch in that time and the notice is ignored.
 pub const NOTICE_TICKS: u32 = 45;
+/// A press made while busy is held this long and fires when the player is free.
+pub const BUFFER_TICKS: u32 = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
@@ -161,8 +163,8 @@ impl Fighter {
     }
 
     pub fn startup_ticks(&self, a: Action) -> u32 {
-        // Jabs stay quick: they are the punch you block, not the one you read.
-        let bonus = if a == Action::Jab { 0 } else { self.tell_bonus };
+        // Jabs stay quick, but a slow opponent telegraphs even those a little.
+        let bonus = if a == Action::Jab { self.tell_bonus / 2 } else { self.tell_bonus };
         self.scaled(self.mv(a).startup) + bonus
     }
 
@@ -515,6 +517,8 @@ pub struct Match {
     pub revoked: Option<(f32, u32)>,
     /// A Deprecation Notice has been posted and takes effect in this many ticks.
     pub notice: Option<u32>,
+    /// A held press: (input, ticks before it is forgotten).
+    pub buffered: Option<(Input, u32)>,
     /// Fight ticks elapsed across rounds, for fatigue.
     pub fought: u32,
     /// (tick, damage) the player has dealt, for Revoke.
@@ -553,6 +557,7 @@ impl Match {
             alias: 0,
             revoked: None,
             notice: None,
+            buffered: None,
             fought: 0,
             dmg_log: Vec::new(),
             brain: Brain { queue: Vec::new(), wait: ms(800), pending: None, since_special: 0, burst_left: 0 },
@@ -568,11 +573,28 @@ impl Match {
         }
     }
 
+    /// Returns true if the input was applied now or buffered to fire as soon
+    /// as the player is free. False means it could not be afforded.
     pub fn player_input(&mut self, input: Input) -> bool {
         if self.phase != Phase::Fighting {
             return false;
         }
-        self.player.apply(input)
+        if self.player.apply(input) {
+            self.buffered = None;
+            return true;
+        }
+        // Busy, not broke: hold the press and fire it the moment the current
+        // action ends, so mashing into recovery does not eat inputs. A repeat
+        // of the action already in progress is dropped, not queued.
+        let repeat = matches!(
+            (input, self.player.state),
+            (Input::Block, State::Blocking(_)) | (Input::Dodge(_), State::Dodging(..))
+        );
+        if !self.player.can_act() && !repeat {
+            self.buffered = Some((input, BUFFER_TICKS));
+            return true;
+        }
+        false
     }
 
     fn say(&mut self, s: impl Into<String>, ticks: u32) {
@@ -646,6 +668,17 @@ impl Match {
         let progress = (self.fought as f32 / (ROUNDS as f32 * ROUND_TICKS as f32)).min(1.0);
         self.opp.power = self.spec.power * (1.0 + (self.spec.fatigue - 1.0) * progress);
 
+        // Fire a held press as soon as the player is free.
+        if let Some((input, t)) = self.buffered {
+            if self.player.can_act() {
+                self.buffered = None;
+                self.player.apply(input);
+            } else if t <= 1 {
+                self.buffered = None;
+            } else {
+                self.buffered = Some((input, t - 1));
+            }
+        }
         self.think();
         let p_hit = self.player.tick();
         let o_hit = self.opp.tick();
