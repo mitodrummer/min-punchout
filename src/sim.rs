@@ -46,11 +46,15 @@ pub struct Move {
 pub const JAB: Move = Move { stamina: 8.0, damage: 6.0, startup: 3, recovery: 6 };
 pub const HOOK: Move = Move { stamina: 14.0, damage: 12.0, startup: 8, recovery: 10 };
 pub const UPPERCUT: Move = Move { stamina: 25.0, damage: 22.0, startup: 15, recovery: 18 };
+/// Opponent costs. The player pays the PLAYER_* ones below; a cheap-dodging
+/// Devbox is unbeatable.
 pub const BLOCK_COST: f32 = 4.0;
+pub const PLAYER_BLOCK_COST: f32 = 2.0;
 /// Opponent windows. The player gets the wider PLAYER_* ones below; giving
 /// the opponent longer blocks breaks the anti-masher balance.
 pub const BLOCK_WINDOW: u32 = 15;
 pub const DODGE_COST: f32 = 6.0;
+pub const PLAYER_DODGE_COST: f32 = 3.0;
 
 pub const DODGE_WINDOW: u32 = 12;
 /// 600 ms and 533 ms. Human reaction plus terminal latency needs this much.
@@ -104,6 +108,8 @@ pub struct Fighter {
     /// Multiplies startup and recovery. >1 is slower.
     pub speed: f32,
     pub block_window: u32,
+    pub block_cost: f32,
+    pub dodge_cost: f32,
     pub dodge_window: u32,
     /// Extra wind-up ticks added to every punch. Gives opponents a readable tell.
     pub tell_bonus: u32,
@@ -130,6 +136,8 @@ impl Fighter {
             regen_per_sec: STAMINA_REGEN_PER_SEC,
             speed: 1.0,
             block_window: BLOCK_WINDOW,
+            block_cost: BLOCK_COST,
+            dodge_cost: DODGE_COST,
             dodge_window: DODGE_WINDOW,
             tell_bonus: 0,
             state: State::Idle,
@@ -201,18 +209,18 @@ impl Fighter {
                 true
             }
             Input::Block => {
-                if self.exhausted() || self.stamina < BLOCK_COST {
+                if self.exhausted() || self.stamina < self.block_cost {
                     return false;
                 }
-                self.stamina -= BLOCK_COST;
+                self.stamina -= self.block_cost;
                 self.state = State::Blocking(self.block_window);
                 true
             }
             Input::Dodge(side) => {
-                if self.exhausted() || self.stamina < DODGE_COST {
+                if self.exhausted() || self.stamina < self.dodge_cost {
                     return false;
                 }
-                self.stamina -= DODGE_COST;
+                self.stamina -= self.dodge_cost;
                 self.state = State::Dodging(side, self.dodge_window);
                 true
             }
@@ -544,7 +552,7 @@ impl Match {
         opp.special = Some(spec.special);
         opp.power = spec.power;
         Match {
-            player: Fighter { block_window: PLAYER_BLOCK_WINDOW, dodge_window: PLAYER_DODGE_WINDOW, ..Fighter::new("Minimal") },
+            player: Fighter { block_window: PLAYER_BLOCK_WINDOW, dodge_window: PLAYER_DODGE_WINDOW, block_cost: PLAYER_BLOCK_COST, dodge_cost: PLAYER_DODGE_COST, ..Fighter::new("Minimal") },
             opp,
             spec,
             round: 1,
