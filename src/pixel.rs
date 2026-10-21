@@ -317,3 +317,46 @@ pub mod png {
         std::fs::write(path, out).unwrap();
     }
 }
+
+// ------------------------------------------------------------ title font
+
+/// A 5x7 face for titles only: wide enough that M, N and W read as
+/// themselves, which the 3x5 face cannot manage. Covers the letters the
+/// title screen uses; anything else is blank.
+fn big_glyph(ch: char) -> [u8; 7] {
+    match ch.to_ascii_uppercase() {
+        'M' => [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001],
+        'I' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
+        'N' => [0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001],
+        'A' => [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+        'L' => [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
+        'P' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000],
+        'U' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        'C' => [0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110],
+        'H' => [0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+        'O' => [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        'T' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100],
+        _ => [0; 7],
+    }
+}
+
+impl Canvas {
+    pub fn big_text(&mut self, x: i32, y: i32, s: &str, scale: i32, c: Rgb) {
+        let mut cx = x;
+        for ch in s.chars() {
+            let g = big_glyph(ch);
+            for (row, bits) in g.iter().enumerate() {
+                for col in 0..5 {
+                    if bits & (0b10000 >> col) != 0 {
+                        self.rect(cx + col * scale, y + row as i32 * scale, scale, scale, c);
+                    }
+                }
+            }
+            cx += 6 * scale;
+        }
+    }
+
+    pub fn big_text_width(s: &str, scale: i32) -> i32 {
+        (s.chars().count() as i32 * 6 - 1) * scale
+    }
+}

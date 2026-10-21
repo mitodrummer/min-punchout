@@ -1,4 +1,4 @@
-# min punchout
+# minimal punchout
 
 Feel prototype for the Minimal Punch-Out terminal fighter. You are Minimal,
 seen from behind at the bottom of the ring. Each opponent on the card fails one

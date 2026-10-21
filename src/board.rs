@@ -90,7 +90,7 @@ pub fn draw(f: &mut Frame, b: &Board, specs: &[OpponentSpec]) {
     let mut spans = vec![
         Span::styled(LOGO, Style::new().fg(Color::White).add_modifier(Modifier::BOLD)),
         Span::raw("   "),
-        Span::styled("MIN PUNCHOUT", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("MINIMAL PUNCHOUT", Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::raw("   "),
         Span::styled("THE CARD", Style::new().fg(Color::White)),
     ];
@@ -151,7 +151,7 @@ pub fn draw(f: &mut Frame, b: &Board, specs: &[OpponentSpec]) {
     f.render_widget(Paragraph::new(hints).dim().alignment(Alignment::Center), rows[3]);
 }
 
-/// The title screen: wordmark, MIN PUNCHOUT in big pixel letters, Minimal
+/// The title screen: wordmark, MINIMAL PUNCHOUT in big pixel letters, Minimal
 /// alone in the ring, and a flashing prompt.
 pub fn draw_title(f: &mut Frame, tick: u64) {
     let area = f.area();
@@ -190,20 +190,20 @@ pub fn paint_title(w: i32, h: i32, tick: u64) -> Canvas {
     }
     // The title, two lines of pixel letters with a drop shadow.
     let shadow = Rgb::hex(0x14141c);
-    let (s1, s2) = (4, 2);
-    let w1 = Canvas::text_width("MIN", s1);
-    let w2 = Canvas::text_width("PUNCHOUT", s2);
+    let s = 2;
+    let w1 = Canvas::big_text_width("MINIMAL", s);
+    let w2 = Canvas::big_text_width("PUNCHOUT", s);
     let x1 = cx - w1 / 2;
     let x2 = cx - w2 / 2;
     let y1 = 4;
-    let y2 = y1 + 5 * s1 + 4;
-    let bw = w2.max(w1) + 12;
-    c.rect(cx - bw / 2, y1 - 3, bw, (y2 + 5 * s2 + 3) - (y1 - 3), shadow);
+    let y2 = y1 + 7 * s + 4;
+    let bw = w2.max(w1) + 10;
+    c.rect(cx - bw / 2, y1 - 3, bw, (y2 + 7 * s + 3) - (y1 - 3), shadow);
     let col = [YELLOW, WHITE, Rgb::hex(0x3ddc97), Rgb::hex(0xff5ad1)][((tick / 8) % 4) as usize];
-    c.text(x1 + 2, y1 + 2, "MIN", s1, Rgb::hex(0x3a3550));
-    c.text(x1, y1, "MIN", s1, col);
-    c.text(x2 + 2, y2 + 2, "PUNCHOUT", s2, Rgb::hex(0x3a3550));
-    c.text(x2, y2, "PUNCHOUT", s2, WHITE);
+    c.big_text(x1 + 2, y1 + 2, "MINIMAL", s, Rgb::hex(0x3a3550));
+    c.big_text(x1, y1, "MINIMAL", s, col);
+    c.big_text(x2 + 2, y2 + 2, "PUNCHOUT", s, Rgb::hex(0x3a3550));
+    c.big_text(x2, y2, "PUNCHOUT", s, WHITE);
     // Minimal in the ring, from behind, shadow-boxing.
     let bob = ((tick / 6) % 2) as i32;
     let jab = (tick / 20) % 2 == 0;
