@@ -23,6 +23,7 @@ struct Opts {
     opponent: Option<String>,
     log: Option<String>,
     no_music: bool,
+    unlock: bool,
 }
 
 fn parse_opts() -> Opts {
@@ -36,6 +37,7 @@ fn parse_opts() -> Opts {
         opponent: None,
         log: None,
         no_music: false,
+        unlock: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -63,9 +65,10 @@ fn parse_opts() -> Opts {
                 opts.opponent = Some(name);
             }
             "--no-music" => opts.no_music = true,
+            "--unlock" => opts.unlock = true,
             "--log" => opts.log = Some(args.next().unwrap_or_else(|| "punchout.log".into())),
             "-h" | "--help" => {
-                println!("punchout [--opponent NAME] [--rank 1-8] [--seed N] [--quiet] [--no-music] [--log FILE]");
+                println!("punchout [--opponent NAME] [--rank 1-8] [--seed N] [--unlock] [--quiet] [--no-music] [--log FILE]");
                 std::process::exit(0);
             }
             _ => {}
@@ -175,6 +178,13 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
             card.unlock_to(i);
         }
     }
+    if opts.unlock {
+        // Every slot pickable; the cursor stays on a named opponent, else the first.
+        card.unlock_to(specs.len() - 1);
+        if opts.opponent.is_none() {
+            card.cursor = 0;
+        }
+    }
     // The rank dial, if given, re-tunes whoever is picked.
     let spec_for = |i: usize| -> OpponentSpec {
         let base = specs[i].clone();
@@ -187,7 +197,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, opts: &Opts) -> std::io::Result<
     // --quiet silences everything. Without an audio device we fall back to
     // the terminal bell.
     let mut audio = if opts.bell { Audio::new(!opts.no_music) } else { None };
-    let mut screen = if opts.opponent.is_some() { Screen::Card } else { Screen::Title };
+    let mut screen = if opts.opponent.is_some() || opts.unlock { Screen::Card } else { Screen::Title };
     let mut view = render::View { show_debug: false, show_hints: true, last_events: Vec::new() };
     let mut next = Instant::now() + tick;
 

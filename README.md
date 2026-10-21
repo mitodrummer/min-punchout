@@ -27,6 +27,7 @@ question: do the stamina numbers make patience win and mashing lose?
 ```sh
 cargo run --release
 cargo run --release -- --opponent docker   # unlock the card up to a named opponent (a prefix is enough)
+cargo run --release -- --unlock            # every slot on the card pickable, in any order
 cargo run --release -- --log session.log   # record every key press and hit for tuning
 cargo run --release -- --no-music          # effects only
 cargo run --release -- --rank 3            # dev dial: re-tune the opponent to ladder rank 1 (easy) to 8 (boss)
